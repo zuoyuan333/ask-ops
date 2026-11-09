@@ -11,7 +11,24 @@ from datetime import datetime, timedelta
 
 import httpx
 
-from . import config
+from . import config, roles as rolemod
+
+
+# ==================== 角色分级（2026-11-09）====================
+# 角色**只决定回答的形态**，不决定权限 —— 权限由 config.ADMIN_UIDS 单独判定，两者解耦，
+# 所以允许用户自选（选错最坏是多看到/少看到几段文字，不存在提权）。
+# 角色元信息与骨架全部放在 `data/roles/`（roles.json + `<key>.md`）：
+#   改角色、改措辞只改数据文件，**不用动代码**；开源分发与私有部署共用一套代码、两份数据。
+# ⚠️ 配置缺失时 roles.prompt() 返回空串 = 不加角色约束（等价于没做分级），服务照常启动。
+def norm_role(raw: str | None) -> str:
+    """把任意输入归一成配置里的角色 key；不认识的落到 default。"""
+    return rolemod.norm(raw)
+
+
+def _role_block(role: str | None) -> str:
+    """取角色骨架（data/roles/<key>.md）；没配 / 读不到 → 空串。"""
+    return rolemod.prompt(role)
+
 
 _SYSTEM = """你是一名资深 IT 运维 / 技术支持助手，正在和一线工程师做多轮对话式排障。用户往往一次说不清现象，你要像老工程师带新人：**先问清关键信息，再给结论与动作**。
 你的回答会被直接拿去执行，所以必须**先说结论、再给动作、最后点坑**：不铺垫、不客套、不复述用户的话、不解释自己是怎么查到的。
@@ -63,7 +80,8 @@ def _build_messages(question: str, chunks: list, history: list | None,
                     coach: list[dict] | None = None,
                     weak: bool = False,
                     rare: dict | None = None,
-                    log: str | None = None):
+                    log: str | None = None,
+                    role: str | None = None):
     """chunks: [{file, idx, text, score}]；history: [{role, content}] 可空；
     code_hits: [{file, line, text, score}] 源码命中片段，可空；
     images: data URL 列表（报障截图），可空；
@@ -76,6 +94,9 @@ def _build_messages(question: str, chunks: list, history: list | None,
          只是拼在「用户问题：」后面的裸文本 —— 那样模型会把它当噪声，转头去抄知识库。
     """
     content = ""
+    # ⭐ 角色分级：放在最前。模型对上下文开头的指令服从度最高，且这里明写「覆盖固定结构」，
+    #    才能压住 _SYSTEM / _AGENT_SYSTEM 里的三段式要求。
+    content += _role_block(role) + "\n\n"
     if coach:
         # 放在最前面：模型对上下文开头的指令服从度最高，而这段恰恰是「人工亲口教过」的内容。
         segs = []
@@ -454,8 +475,10 @@ def answer(question: str, chunks: list, history: list | None = None,
            code_hits: list | None = None, images: list[str] | None = None,
            coach: list[dict] | None = None,
            weak: bool = False, rare: dict | None = None,
-           log: str | None = None) -> str:
-    msgs = _build_messages(question, chunks, history, code_hits, images, coach, weak, rare, log)
+           log: str | None = None,
+           role: str | None = None) -> str:
+    msgs = _build_messages(question, chunks, history, code_hits, images, coach, weak, rare, log,
+                           role=role)
     try:
         if config.LLM_PROVIDER == "ollama":
             raw = _ask_ollama(msgs)
@@ -623,11 +646,12 @@ def _ask_meta_bounded(msgs: list, wall: float, **kw) -> dict:
 
 
 def _agent_user_message(question: str, log_ctx: dict | None, n_images: int,
-                        mode: str = "") -> str:
+                        mode: str = "", role: str | None = None) -> str:
     # ⚠️ 只有 mode=="report" 才是走了报障卡；其余（None / 空 / "free"）一律按**自由提问**处理 ——
     #    前端「不选直接打字」也走这条，所以默认必须是 free（2026-09-22 主人定）。
     free = (mode or "").strip().lower() != "report"
-    text = f"{'【用户提问】' if free else '【报障描述】'}\n{question}"
+    # ⭐ 角色分级：与 _build_messages 一致，插在 user message 最前面
+    text = _role_block(role) + "\n\n" + f"{'【用户提问】' if free else '【报障描述】'}\n{question}"
     if free:
         text += (
             "\n\n⚠️【这是自由提问，不是报障卡】用户没走信息卡，输入往往很短、意图不明。"
@@ -1110,7 +1134,8 @@ def answer_agentic(question: str, history: list | None = None,
                    images: list[str] | None = None,
                    coach: list[dict] | None = None,
                    log: str | None = None,
-                   mode: str = "") -> tuple[str, dict]:
+                   mode: str = "",
+                   role: str | None = None) -> tuple[str, dict]:
     """取证闭环：模型自主调工具、多轮收敛，最后收口成三段式答案。
 
     返回 (答案文本, meta)。meta 含本次取证轨迹与知识库命中，供响应体与运维复核。
@@ -1243,7 +1268,7 @@ def answer_agentic(question: str, history: list | None = None,
         msgs = [{"role": "system", "content": sys_content}]
         for h in _trim_history(history):
             msgs.append({"role": h["role"], "content": h["content"]})
-        user_text = _agent_user_message(question, log_ctx, len(images), mode=mode)
+        user_text = _agent_user_message(question, log_ctx, len(images), mode=mode, role=role)
         if images:
             uc: list | str = [{"type": "text", "text": user_text}]
             for u in images:

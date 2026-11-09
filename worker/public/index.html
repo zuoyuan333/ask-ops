@@ -607,6 +607,9 @@
       <!-- 「❓ 能做什么」：任何时候都能看的能力说明 —— 回访用户没有首屏入口也能随时查。 -->
       <button type="button" class="icon-btn" id="helpBtn"
               title="看看助手能帮你做哪些事">❓ 能做什么</button>
+      <!-- 「🎯 场景」：显示当前回答场景，点击可随时切换（只影响展示形态，不涉及权限） -->
+      <button type="button" class="icon-btn" id="roleBtn" style="display:none"
+              title="切换你的工作场景：回答会按场景组织">🎯 一线</button>
       <!-- 「⚙ 管理」：默认隐藏，页面加载时探测 /admin/status，只有管理员（后端判 X-Auth-User）
            才显示。⚠️ 前端隐藏只是体验，真正的权限在后端，前端绕不过去。 -->
       <button type="button" class="icon-btn" id="adminBtn" style="display:none"
@@ -725,7 +728,32 @@ if (typeof crypto !== "undefined" && typeof crypto.randomUUID !== "function") {
    进而调用 /cases（拉全量案例库）、/coach（写记录改助手行为）等管理接口。
    现在**前端不再持有任何密钥**——鉴权完全由网关层的登录令牌（HttpOnly Cookie）负责，
    转发给本机时由 Worker 自己补 ORIGIN key。 */
-const API = "/ask";
+const API = "/ask-stream";
+/* ⭐ /ask 改走 SSE（/ask-stream），绕开边缘网关的 100 秒 524。
+   原来是一问一答、等完整 JSON；deep 档取证+自检+精简正常 60~180 秒，
+   一过 100 秒就 524，用户看到"服务不在线"，后端却还在跑 —— 答案永远送不出去。
+   现在后端立刻返回 text/event-stream + 每 8 秒心跳，算完再 push `event: done`。
+   ⚠️ /ask 后端仍然保留，这里改回一行即可回退。 */
+async function readSSE(r){
+  if(!r.body) return null;
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = "", data = null;
+  while(true){
+    const {done, value} = await reader.read();
+    if(done) break;
+    buf += dec.decode(value, {stream:true});
+    let idx;
+    while((idx = buf.indexOf("\n\n")) >= 0){
+      const chunk = buf.slice(0, idx); buf = buf.slice(idx + 2);
+      if(chunk.indexOf("event: done") === 0){
+        const m = chunk.match(/data:\s*([\s\S]*)$/);
+        if(m){ try{ data = JSON.parse(m[1]); }catch(e){} }
+      }
+    }
+  }
+  return data;
+}
 /* 「源码」是**内部叫法**，一线看不懂也不该看到（2026-09-18 主人指出）。
    对外统一用代号 —— 主人 2026-09-25 定名「蜗牛」。
    ⚠️ 要换词只改这一个常量：页面上所有对外文案都会跟着变。 */
@@ -2657,10 +2685,89 @@ async function openAdmin(){
         const needName = !!j.needs_name;
         const needStaff = !j.staff_id;
         if(needName || needStaff) render({needName, needStaff, name: j.name || "", staff: j.staff_id || ""});
+        // 记住当前角色，顶部显示「🎯」按钮（所有人都能改，不是管理员专属）
+        window.__myRole = j.role || "frontline";
+        const rb = $("roleBtn");
+        if(rb){
+          rb.textContent = "🎯 " + (j.role_label || "一线");
+          rb.style.display = "";
+          rb.onclick = function(){ renderRoleAsk(window.__myRole, false); };
+        }
+        // 还没选过 → 弹一次；若补资料弹窗开着，等它关掉再弹（避免遮罩叠加）
+        if(!j.role_set){
+          (function waitRole(){
+            if(document.getElementById("profileAsk")){ setTimeout(waitRole, 800); return; }
+            renderRoleAsk(j.role, true);
+          })();
+        }
       }
     }catch(e){ /* 拿不到就静默，不影响主流程 */ }
   }, 1200);
 })();
+
+/* ===== 角色选择（回答按角色组织）=====
+   角色只是**展示形态**，不是权限等级（权限在 config.ADMIN_UIDS）。
+   三类角色的回答骨架在 data/roles/<key>.md，改措辞不用改代码。 */
+function renderRoleAsk(current, isFirst){
+  if(document.getElementById("roleAsk")) return;
+  const cur = current || window.__myRole || "frontline";
+  const first = !!isFirst;
+  const OPTS = [
+    ["admin", "管理员", "我负责系统管理与总部支撑", "给完整技术细节：根因、接口、数据表、代码位置"],
+    ["operator", "运维", "我按标准流程处理问题", "给结论、标准操作、做完怎么验证，以及「该找谁」"],
+    ["frontline", "一线", "我在现场处理问题", "给能照着做的步骤，每步写清在哪点、看到什么"]
+  ];
+  let picked = cur;
+  const mask = document.createElement("div");
+  mask.id = "roleAsk";
+  mask.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  mask.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:460px;width:100%;padding:18px;font:13.5px/1.6 -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;color:#0f172a;box-shadow:0 10px 30px rgba(15,23,42,.2)">
+    <div style="font-size:15px;font-weight:600;margin-bottom:4px">${first ? '选择你的工作场景' : '切换工作场景'}</div>
+    <div style="color:#64748b;font-size:12.5px;margin-bottom:12px">${first ? '回答会按你的场景来组织，不再一股脑给全部内容。<br>选错了不要紧，顶部「🎯」随时能改。' : '切换后，后续回答会立即按新场景组织。'}</div>
+    <div id="roleList" style="display:flex;flex-direction:column;gap:8px">
+      ${OPTS.map(function(o){
+        return '<label data-r="' + o[0] + '" style="display:block;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;cursor:pointer">'
+          + '<div style="display:flex;align-items:center;gap:8px"><input type="radio" name="rolePick" value="' + o[0] + '"' + (o[0]===cur ? " checked" : "") + ' style="margin:0">'
+          + '<b style="font-size:13.5px">' + o[1] + '</b><span style="color:#94a3b8;font-size:12px">' + o[2] + '</span></div>'
+          + '<div style="color:#64748b;font-size:12px;margin-left:22px">' + o[3] + '</div></label>';
+      }).join("")}
+    </div>
+    <div id="roleErr" style="color:#b91c1c;font-size:12.5px;min-height:18px;margin-top:8px"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:2px">
+      <button id="roleOk" style="border:0;background:#2563eb;color:#fff;border-radius:8px;padding:8px 16px;cursor:pointer;font-family:inherit">确定，开始使用</button>
+    </div></div>`;
+  document.body.appendChild(mask);
+  const list = $("roleList");
+  Array.prototype.forEach.call(list.querySelectorAll("label"), function(lb){
+    lb.addEventListener("click", function(){
+      Array.prototype.forEach.call(list.querySelectorAll("label"), function(x){
+        x.style.borderColor = "#e2e8f0"; x.style.background = "#fff";
+      });
+      lb.style.borderColor = "#2563eb"; lb.style.background = "#eff6ff";
+      picked = lb.getAttribute("data-r");
+    });
+  });
+  const dflt = list.querySelector('label[data-r="' + cur + '"]');
+  if(dflt){ dflt.style.borderColor = "#2563eb"; dflt.style.background = "#eff6ff"; }
+  $("roleOk").addEventListener("click", async function(){
+    const btn = $("roleOk"), err = $("roleErr");
+    btn.disabled = true; btn.textContent = "保存中…";
+    try{
+      const r = await fetch("/auth/role", {method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({role: picked}), signal: AbortSignal.timeout(10000)});
+      const j = await r.json().catch(function(){ return {}; });
+      if(!r.ok) throw new Error(j.detail || ("HTTP " + r.status));
+      mask.remove();
+      window.__myRole = picked;
+      const rb = $("roleBtn");
+      if(rb) rb.textContent = "🎯 " + (j.role_label || picked);
+      showToast("已设置：" + (j.role_label || picked), "ok");
+    }catch(e){
+      btn.disabled = false; btn.textContent = "确定，开始使用";
+      err.textContent = "保存失败：" + (e.message || e);
+    }
+  });
+}
 
 initAdmin();
 $("joinBtn").addEventListener("click", async ()=>{
@@ -2837,9 +2944,16 @@ async function doSend(mode="free"){
       headers:{"Content-Type":"application/json"},
       body: JSON.stringify({question:(logPayload ? `${text}\n\n${logPayload}` : text), history, mode, rid,
                             images: imgs.map(im=>im.id||im.data).filter(Boolean)}),
-      signal: AbortSignal.timeout(240000)
+      // 走 SSE 后后端不再被边缘的 100s 掐断；前端若还停在 240s 会变成"后端算完、前端先放弃"
+      signal: AbortSignal.timeout(600000)
     });
-    const j = await r.json().catch(()=>({}));
+    let j = {};
+    const _ct = (r.headers.get("content-type")||"").toLowerCase();
+    if(r.ok && r.body && _ct.indexOf("text/event-stream") >= 0){
+      j = (await readSSE(r)) || {};
+    }else{
+      j = await r.json().catch(()=>({}));
+    }
     $("typingMsg")&&$("typingMsg").remove(); stopWaitHints(); stopQueuePoll();
     if(r.status===401){
       // 访问验证失效（令牌到期 / 换了浏览器 / 被清 Cookie）—— 网关这时回的是登录页 HTML，

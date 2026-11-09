@@ -125,6 +125,27 @@ def enabled() -> bool:
     return bool(config.AUTH_SECRET)
 
 
+# ---------------- 角色（内容分级，2026-11-09） ----------------
+# ⚠️ 角色**只决定回答的形态**，不决定权限：
+#    管理权限仍由 config.ADMIN_UIDS 单独判定，两者完全解耦（选错角色不存在提权）。
+# ⭐ 2026-11-09 配置化：实现统一到 `app/roles.py`（读 data/roles/），这里不再保留第二份定义。
+#    ⚠️ 仍然**不 import llm**（auth 是底层模块，反向依赖成环）；roles 是纯配置模块、无依赖，
+#       auth 与 llm 都可以安全引用它 —— 这也正是把它单独抽出来的原因。
+from . import roles as rolemod
+
+
+def norm_role(raw: str | None) -> str:
+    """归一成配置里的角色 key；不认识的落到 default。"""
+    return rolemod.norm(raw)
+
+
+# 向后兼容：main.py 仍在用 auth.ROLE_DEFAULT / auth.ROLE_LABELS（启动时快照，
+# 改 data/roles/ 后需重启；运行期只读，不存在并发问题）。
+ROLE_DEFAULT = rolemod.default_key()
+ROLE_LABELS = rolemod.labels()
+ROLES = tuple(rolemod.keys())
+
+
 def new_user(name: str, note: str = "") -> dict:
     """建一个用户（生成 TOTP 密钥）。**不落盘**。
 
@@ -140,6 +161,9 @@ def new_user(name: str, note: str = "") -> dict:
         "id": uid, "name": (name or "").strip() or uid, "note": (note or "").strip(),
         "secret": totp.new_secret(),
         "created_at": int(time.time()), "last_used_at": None, "use_count": 0, "enabled": True,
+        "role": None,                  # 内容分级用。★ 故意默认 None（未选）：
+                                       #   前端据「role 为空」弹一次选择，选过就不再打扰；
+                                       #   读取时由 role_of() 兜底成 ROLE_DEFAULT。
     }
 
 
@@ -338,6 +362,35 @@ def verify_code_for(uid: str, code: str) -> bool:
     except Exception as e:                          # noqa: BLE001
         audit("totp_secret_bad", uid=uid, name=u.get("name"), error=f"{type(e).__name__}: {e}")
         return False
+
+
+def role_of(uid: str | None) -> str:
+    """取用户角色。老用户没有 role 字段时返回默认值（不报错、不返回 None）。"""
+    if not uid:
+        return ROLE_DEFAULT
+    for u in load_users():
+        if u.get("id") == uid:
+            return norm_role(u.get("role"))
+    return ROLE_DEFAULT
+
+
+def set_role(uid: str, role: str) -> dict | None:
+    """设置用户角色（内容分级）。
+
+    ⚠️ 这不是提权：角色只决定回答的段落形态，「能删案例 / 能改名 / 能看管理面板」
+       仍由 config.ADMIN_UIDS 决定，与本字段完全无关。
+    用户自己也能改（见 main 的 /auth/role），所以这里只做格式校验。
+    """
+    r = norm_role(role)
+    with _LOCK:
+        users = load_users()
+        for u in users:
+            if u.get("id") == uid:
+                if u.get("role") != r:      # 值没变就不落盘，避免无意义写盘
+                    u["role"] = r
+                    save_users(users)
+                return u
+    return None
 
 
 def rename_user(uid: str, name: str) -> dict | None:

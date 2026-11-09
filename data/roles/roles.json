@@ -1,0 +1,23 @@
+{
+  "default": "frontline",
+  "roles": [
+    {
+      "key": "admin",
+      "label": "管理员",
+      "aliases": ["管理员", "系统管理员", "总部", "admin"],
+      "file": "admin.md"
+    },
+    {
+      "key": "operator",
+      "label": "运维",
+      "aliases": ["运维", "二线", "operator", "ops"],
+      "file": "operator.md"
+    },
+    {
+      "key": "frontline",
+      "label": "一线",
+      "aliases": ["一线", "现场", "frontline"],
+      "file": "frontline.md"
+    }
+  ]
+}

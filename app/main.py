@@ -30,7 +30,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 from fastapi import Cookie, FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from .totp_asset import TOTP_APP_QR, TOTP_APP_URL   # 验证器 App 下载二维码 + 下载页地址（内嵌，见该文件说明）
 from pydantic import BaseModel, Field
@@ -750,6 +750,9 @@ def admin_user_enable(body: AdminUidIn, x_auth_user: str = Header(default="")):
 def ask(body: AskIn, x_api_key: str = Header(default=""),
         x_auth_user: str = Header(default="")):
     _check_key(x_api_key)
+    # ⭐ 角色分级：从网关注入的 X-Auth-User（验签令牌里的 uid）取角色。
+    #    只影响回答形态，不影响权限（管理员判定仍走 _check_admin）。本机直连按默认角色。
+    _role = auth.role_of((x_auth_user or "").strip() or None)
     question = (body.question or "").strip()
     if not question:
         raise HTTPException(status_code=400, detail="question 不能为空")
@@ -789,7 +792,8 @@ def ask(body: AskIn, x_api_key: str = Header(default=""),
         # 轮数上限与末轮强制收口在 llm.answer_agentic。溯源字段从 meta 回填。
         answer_text, agent_meta = llm.answer_agentic(
             question, history=history, images=_resolve_images(body.images),
-            coach=coach_hits, log=best_log or None, mode=body.mode or "")
+            coach=coach_hits, log=best_log or None, mode=body.mode or "",
+            role=_role)
         # mode 由前端首屏入口决定："report"=走了报障卡；其余=自由提问（形状自适应）。
         # ⚠️ 下面的单轮回退路径（KB_AGENT_ENABLED=0）暂不区分 mode —— 它是应急开关，默认不走。
         hits, weak, rare = [], False, {}
@@ -818,7 +822,7 @@ def ask(body: AskIn, x_api_key: str = Header(default=""),
 
         answer_text = llm.answer(question, hits, history, code_hits,
                                  images=_resolve_images(body.images), coach=coach_hits,
-                                 weak=weak, rare=rare, log=log_text)
+                                 weak=weak, rare=rare, log=log_text, role=_role)
 
     # 溯源字段：闭环下检索发生在工具内部，改从取证轨迹回填（同一文档去重），
     # 保证前端「复制给人工」与 /review 仍拿得到来源。
@@ -874,6 +878,69 @@ def ask(body: AskIn, x_api_key: str = Header(default=""),
                          "time_budget_hit": agent_meta.get("time_budget_hit", False),
                          "usage": agent_meta.get("usage") or {}}
     return resp
+
+
+@app.post("/ask-stream")
+def ask_stream(body: AskIn, x_api_key: str = Header(default=""),
+               x_auth_user: str = Header(default="")):
+    """SSE 版 /ask：绕开 Cloudflare 的 100 秒 524。
+
+    【问题】
+    CF 判 524 的依据是「origin 在 100 秒内**没有开始**返回响应」。而 deep 档的
+    取证 + 自检 + 精简正常要 60~180 秒，一旦越过 100s：
+      · 用户在边缘侧收到 524 /「服务不在线」
+      · **后端其实还在跑，跑完的答案永远送不出去**（白烧 token、白占并发位）
+
+    【解法】
+    立刻返回 `text/event-stream`（首字节几毫秒），之后每 8 秒发一个 SSE 注释心跳：
+      · CF 看到响应已开始，就不再按 100s 掐；
+      · 心跳保证中间设备（及浏览器）不会把"长时间无数据"判成断连。
+    算完后推 `event: done` + 完整 JSON，前端拿到即渲染。整条链时长不再受 100s 限制。
+
+    【兼容】
+    /ask 原样保留：前端可随时改回旧路径。两者共用同一套业务逻辑（这里直接调用
+    ask()，**不复制代码** —— 复制一份必然会随时间漂移）。
+    """
+    def _run(box: dict) -> None:
+        try:
+            res = ask(body, x_api_key, x_auth_user)
+            if isinstance(res, JSONResponse):
+                box["status"] = res.status_code
+                box["payload"] = json.loads(res.body.decode("utf-8"))
+            else:
+                box["payload"] = res
+        except HTTPException as e:
+            box["status"] = e.status_code
+            box["payload"] = {"detail": e.detail}
+        except Exception as e:                       # noqa: BLE001
+            # 与 ask 同口径：原始异常只进日志，不出现在用户可见文案里
+            box["status"] = 500
+            box["payload"] = {"detail": "服务内部错误，请稍后重试"}
+            print(f"[ask-stream] 未预期异常：{type(e).__name__}: {e}", flush=True)
+            traceback.print_exc()
+        finally:
+            box["done"] = True
+            box["ev"].set()
+
+    def gen():
+        box = {"done": False, "payload": None, "status": 200, "ev": threading.Event()}
+        threading.Thread(target=_run, args=(box,), daemon=True).start()
+        # 立刻吐一段：让 CF 与浏览器都认定"响应已经开始"，这行就是解 524 的关键
+        yield ": start\n\n"
+        while not box["ev"].wait(timeout=8):
+            yield ": ping\n\n"
+        payload = box["payload"] if box["payload"] is not None else {}
+        yield "event: done\ndata: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",     # 将来若在中间加 nginx，这行能关掉它的缓冲
+            "Connection": "keep-alive",
+        },
+    )
 
 
 # ---------------- 访问认证：共享口令 → 设备令牌（2026-09-22 主人定）
@@ -1618,13 +1685,17 @@ def auth_whoami(kb_device: str = Cookie(default=""), kb_fp: str = Cookie(default
         return {"enabled": False, "ok": True, "reason": "认证未启用"}
     ok, why, uid = auth.verify(kb_device, kb_fp)
     name, staff = "", ""
+    role, role_set = auth.ROLE_DEFAULT, False
     if uid:
         for x in auth.load_users():
             if x.get("id") == uid:
                 name = str(x.get("name") or "")
                 staff = auth.norm_staff_id(x.get("staff_id") or "")
+                role = auth.norm_role(x.get("role"))     # 老用户没该字段 → 默认角色
+                role_set = bool(x.get("role"))           # 前端据此决定要不要弹「选角色」
                 break
     return {"enabled": True, "ok": ok, "reason": why, "uid": uid, "name": name, "staff_id": staff,
+            "role": role, "role_label": auth.ROLE_LABELS.get(role, ""), "role_set": role_set,
             "needs_name": bool(uid) and auth.looks_anonymous(name)}
 
 
@@ -1652,6 +1723,31 @@ def auth_set_name(body: SelfNameIn, kb_device: str = Cookie(default=""),
         raise HTTPException(status_code=404, detail="没找到你的身份")
     auth.audit("self_rename", uid=uid, name=n)
     return {"ok": True, "name": n}
+
+
+class SelfRoleIn(BaseModel):
+    role: str = ""
+
+
+@app.post("/auth/role")
+def auth_set_role(body: SelfRoleIn, kb_device: str = Cookie(default=""),
+                  kb_fp: str = Cookie(default="")):
+    """本人设置角色（回答按角色组织）。
+
+    ⚠️ 角色只决定**回答的段落形态**，不决定权限：
+       「能删案例 / 能改名 / 能看管理面板」仍由 config.ADMIN_UIDS 判定。
+       所以允许用户自选、随时改 —— 选错最坏是多看到或少看到几段，不存在提权。
+    ⚠️ 免 Key，与 `/auth/whoami` 同口径：凭设备令牌定位 uid，无令牌一律 401。
+    """
+    ok, why, uid = auth.verify(kb_device, kb_fp)
+    if not ok or not uid:
+        raise HTTPException(status_code=401, detail=why or "请先完成验证")
+    r = auth.norm_role(body.role)
+    u = auth.set_role(uid, r)
+    if not u:
+        raise HTTPException(status_code=404, detail="没找到你的身份")
+    auth.audit("self_role", uid=uid, role=r)
+    return {"ok": True, "role": r, "role_label": auth.ROLE_LABELS.get(r, "")}
 
 
 class SelfStaffIn(BaseModel):

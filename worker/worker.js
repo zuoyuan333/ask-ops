@@ -28,7 +28,7 @@ const FORWARD_TIMEOUT_MS = 210000;
 // 需要校验 Key 并转发到本机服务的 POST 路径（白名单：新增本机接口只改这里）
 // ⚠️ 精确匹配，子路径要单独列（如 /coach/active）。
 const FORWARD_POST_PATHS = new Set([
-  "/ask", "/summarize", "/upload", "/upload-zip",
+  "/ask", "/ask-stream", "/summarize", "/upload", "/upload-zip",
   "/feedback", "/cases", "/coach", "/coach/active", "/retry",
   // 会话（跨设备续聊）+ 手动清理（2026-09-22）
   "/session/new", "/session/sync", "/gc",
@@ -546,6 +546,21 @@ export default {
           body: JSON.stringify(payload),
           signal: controller.signal,
         });
+        // ⭐ /ask-stream 是 SSE，**必须流式透传**。
+        //    不能像下面那样 `await res.json()` —— 那会等完整响应体才返回，
+        //    等于把「后端已开始响应」这个信息吃掉，边缘照样按 100s 掐断。
+        //    直接返回 res.body（ReadableStream），边收边转，长任务可跑数分钟。
+        if (url.pathname === "/ask-stream") {
+          return new Response(res.body, {
+            status: res.status || 200,
+            headers: {
+              ...CORS,
+              "Content-Type": "text/event-stream; charset=utf-8",
+              "Cache-Control": "no-cache, no-transform",
+              "X-Accel-Buffering": "no",
+            },
+          });
+        }
         const data = await res.json();
         // 2026-09-25：**透传后端真实状态码**。原写法 `res.ok ? 200 : 502` 会把后端的
         // 403（权限不足）、400（参数错）一并压成 502 → 前端只提示"服务异常"，
