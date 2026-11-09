@@ -1,0 +1,29 @@
+# Cloudflare Worker 网关配置（AskOps）
+# 部署：在本目录执行
+#   npm i -g wrangler        （或直接用 npx wrangler）
+#   wrangler login
+#   wrangler deploy
+
+name = "ask-ops-gateway"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# 自定义域名：把 ask.example.com 换成你自己的域名（需已托管在 Cloudflare）
+# 不需要自定义域名时，删掉下面 routes 整段，改用 workers.dev 默认域名即可。
+routes = [
+  { pattern = "ask.example.com", custom_domain = true }
+]
+
+# 静态页面：public/index.html。run_worker_first=true 让 /ask、/healthz 先进 Worker
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[vars]
+# 本机服务的公网入口（Cloudflare Tunnel 或反代地址）
+KB_ORIGIN = "https://ai.example.com"
+
+# 密钥用 secret 存放，不要写在本文件：
+#   wrangler secret put GATEWAY_API_KEY   # 用户访问网关要带的 Key（可选）
+#   wrangler secret put ORIGIN_API_KEY    # 转发给本机服务时的 Key（对应服务端 KB_GATEWAY_API_KEY）

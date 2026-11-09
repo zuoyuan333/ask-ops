@@ -1,0 +1,3333 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="uFI1SRQ5SEYBKd4geMH2uL">
+<head data-page-node-id="bLj1IKpXkN6HP4ZuJgyGEC">
+<meta charset="UTF-8" data-page-node-id="FIDrEo7x3RjxUb0Z58ZhCF">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="0KgVrjdnJSvVK34wGFEbm9">
+<title>AskOps · AI 运维助手</title>
+<!-- favicon（2026-10-28 主人选定：蓝色 POS 图标）：ICO + 多尺寸 PNG -->
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#2563EB">
+<style>
+  :root{
+    --bg:#f1f5f9; --card:#ffffff; --line:#e2e8f0;
+    --brand:#2563eb; --brand-d:#1d4ed8; --brand-soft:#eff6ff;
+    --text:#0f172a; --muted:#64748b;
+    --ok:#16a34a; --bad:#ef4444; --warn:#d97706;
+    --ai-bg:#f8fafc; --user-bg:#2563eb;
+    --radius:14px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,sans-serif;
+    background:linear-gradient(160deg,#eef4ff 0%,var(--bg) 45%);
+    color:var(--text); display:flex; flex-direction:column;
+  }
+  /* ---------- 顶栏 ---------- */
+  header{
+    flex:none; display:flex; align-items:center; gap:12px;
+    padding:14px 18px 10px; max-width:860px; width:100%; margin:0 auto;
+  }
+  .logo{
+    width:40px;height:40px;border-radius:11px;flex:none;
+    background:linear-gradient(135deg,#3b82f6,#2563eb);
+    display:flex;align-items:center;justify-content:center;
+    color:#fff; font-size:21px; box-shadow:0 4px 12px rgba(37,99,235,.25);
+  }
+  /* ---------- 页头：标题 + talkID（2026-09-27 主人三次调整后，工具按钮已全部下移到底部） ---------- */
+  .hwrap{flex:1; min-width:0; display:flex; flex-direction:column}
+  .hmain{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap}
+  /* 底部操作行：复制给人工（有对话才显示）+ 继续会话 / 报障 / 管理 / 清空对话，同一行 */
+  .bottombar{display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap}
+  h1{font-size:18px; font-weight:700; line-height:1.25; display:flex; align-items:baseline; gap:5px; flex-wrap:wrap}
+  /* 副标题 = **实时状态行**（2026-10-23 主人要求改版）。
+     ⚠️ 原来是静态文案「对话式排障 · 缺信息会追问 · 请控制好输入条件…」，
+        主人要求换成「AI在线 · 内网在线 · 知识 N 篇」，由 checkHealth() 每 60 秒刷新。
+     三态配色：全绿=AI 与内网都正常；黄=AI 正常但内网通道离线（能问答、查不了终端数据）；
+              红=AI 本身不可用。点不点得动都无所谓，它只是状态展示。 */
+  .hsub{
+    display:flex; align-items:center; gap:6px;
+    font-size:13.5px; color:#0f172a; font-weight:500; margin-top:2px;
+    font-variant-numeric:tabular-nums;
+  }
+  .hsub .hdot{width:7px;height:7px;border-radius:50%;background:#cbd5e1;flex:none;transition:.2s}
+  .hsub.on .hdot{background:var(--ok); box-shadow:0 0 0 3px rgba(22,163,74,.18)}
+  .hsub.partial .hdot{background:var(--warn); box-shadow:0 0 0 3px rgba(217,119,6,.18)}
+  .hsub.off .hdot{background:var(--bad); box-shadow:0 0 0 3px rgba(239,68,68,.15)}
+  .hsub.off{color:#b91c1c}
+  /* 会话 ID（talkID）：贴在标题右后方，等宽字体更易辨认；点一下复制 */
+  .talkid{
+    border:0;background:transparent;padding:0;cursor:pointer;
+    font-size:11.5px;font-weight:400;color:var(--muted);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  .talkid:hover{color:var(--brand);text-decoration:underline}
+  /* 服务状态行。
+     ⚠️ 2026-10-23 主人要求：**正常时不再显示**「AI 在线 · 知识 N 段 · 数据在线」那一行。
+        但它还承担三种**必须保留**的提示，所以做成「默认隐藏、有事才出现」：
+          · 离线 → 红字告警（本机没开机要让人知道）
+          · 排队 → 「你排在第 N 位」
+          · 处理中 → 「正在处理，预计约 N 秒…」
+        实现：默认 display:none，由 JS 按需切 .show；见 checkHealth/_queueTick。
+     ⚠️ 别把这一段整个删掉 —— 删了「AI 离线」就没提示，用户只会觉得"点了没反应"。 */
+  .statusline{
+    display:none; align-items:center; gap:7px; margin-top:7px;
+    font-size:13.5px; font-weight:500; color:#0f172a; white-space:nowrap;
+  }
+  .statusline.show{display:flex}
+  .statusline.on{color:var(--ok)}
+  .statusline.off{
+    color:var(--bad); font-size:15px; font-weight:700; white-space:normal;
+    background:#fef2f2; border:1px solid #fecaca; border-radius:9px;
+    padding:7px 12px; margin-top:9px; width:max-content; max-width:100%;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:#cbd5e1}
+  .dot.on{background:var(--ok); box-shadow:0 0 0 3px rgba(22,163,74,.18)}
+  .dot.off{background:var(--bad); box-shadow:0 0 0 3px rgba(239,68,68,.15)}
+  .icon-btn{
+    border:1px solid var(--line);background:#fff;color:var(--muted);
+    border-radius:9px;padding:6px 11px;font-size:12.5px;cursor:pointer;transition:.15s;
+    display:inline-flex;align-items:center;gap:5px;box-shadow:0 1px 2px rgba(0,0,0,.03);
+  }
+  .icon-btn:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
+  /* 禁用态（2026-09-24）：「🗑 清空对话」在没有对话时置灰，避免点了没反应 */
+  .icon-btn:disabled,.icon-btn:disabled:hover{
+    opacity:.4;cursor:not-allowed;border-color:var(--line);color:var(--muted);
+    background:#fff;box-shadow:none}
+  /* ---------- 消息区 ----------
+     ⚠️ 2026-10-23 主人要求：中间对话区要有**白色卡片背景**。
+        原来只有 body 的浅色渐变，消息气泡和背景糊在一起、看不出"这是一块对话区"。
+        做法：左右留白从 .feed 移到 main（窄屏才不会被卡片顶到边），
+        .feed 自己变成白底圆角卡片；空的时候（自由聊天模式首屏）整块隐藏，
+        免得留一条空白色条。 */
+  main{
+    flex:1; overflow-y:auto; padding:10px 14px 18px;
+    scroll-behavior:smooth;
+  }
+  .feed{
+    max-width:860px; width:100%; margin:0 auto; padding:16px 14px;
+    display:flex; flex-direction:column; gap:14px;
+    background:var(--card); border:1px solid var(--line); border-radius:16px;
+    box-shadow:0 4px 18px rgba(15,23,42,.05);
+  }
+  .feed:empty{display:none}
+  /* 勾选框常驻在消息行的最外侧（助手在左、用户在右），随气泡一起滚动 */
+  .msg{display:flex; gap:10px; animation:fadeIn .22s ease; position:relative; padding-left:24px}
+  .msg.user{flex-direction:row-reverse; padding-left:0; padding-right:24px}
+  .pick{
+    position:absolute; top:8px; left:0; width:16px; height:16px; margin:0;
+    accent-color:var(--brand); cursor:pointer; flex:none;
+  }
+  .msg.user .pick{left:auto; right:0}
+  /* 2026-11-02：没勾选就点「复制给人工」时，让勾选框闪一下，明确告诉用户点哪儿 */
+  @keyframes pickPulse{0%,100%{box-shadow:0 0 0 0 rgba(37,99,235,0)} 50%{box-shadow:0 0 0 7px rgba(37,99,235,.28)}}
+  .pick.hint{outline:2px solid #2563eb; outline-offset:2px; border-radius:3px; animation:pickPulse 1.1s ease 2}
+  @keyframes fadeIn{from{opacity:0; transform:translateY(6px)}to{opacity:1; transform:none}}
+  .msg .avatar{
+    width:32px;height:32px;border-radius:9px;flex:none;margin-top:2px;
+    display:flex;align-items:center;justify-content:center;font-size:16px;
+  }
+  .msg.ai .avatar{background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff}
+  .msg.user{flex-direction:row-reverse}
+  .msg.user .avatar{background:#e2e8f0; color:#334155}
+  /* ⚠️ 2026-09-27 主人报「输入 hello 被折成 he/lo」—— 根因：原 .bubble{max-width:78%} 的百分比
+     基准是外层 wrapper，而 wrapper 是 shrink-to-fit（宽度=内容宽）；短文本时 78%×内容宽 < 内容宽
+     → 反而把内容压到折行（长文本时 wrapper 接近满宽，所以一直没暴露）。
+     修法：wrapper 固定为 .msg-body（flex:1 占满剩余宽度 → 百分比基准变成确定值），
+     气泡改 width:fit-content → 短消息贴合内容、长消息最多 78% 不错行；用户侧整体右对齐。 */
+  .msg-body{flex:1 1 auto; min-width:0}
+  .msg.user .msg-body{display:flex; flex-direction:column; align-items:flex-end}
+  .bubble{
+    width:fit-content; max-width:78%; padding:11px 14px; border-radius:13px; font-size:14px; line-height:1.7;
+    word-break:break-word; white-space:pre-wrap;
+    box-shadow:0 1px 3px rgba(15,23,42,.05);
+  }
+  .msg.ai .bubble{background:var(--ai-bg); border:1px solid var(--line); border-top-left-radius:4px}
+  .msg.user .bubble{background:var(--user-bg); color:#fff; border-top-right-radius:4px; user-select:text}
+  .msg .meta{font-size:11px;color:#94a3b8;margin-top:4px; padding:0 2px}
+  .msg.user .meta{text-align:right}
+  /* 回答简图（tools.draw_diagram）：白底卡片插在正文前，先看图再读字。
+     图自带白底 / 边框 / 圆角（后端模板产出），这里不再加边框，免得套两层。 */
+  .diagwrap{margin:0 0 10px}
+  .diagwrap img,.diagwrap svg{display:block; width:100%; height:auto; border-radius:12px}
+  /* markdown 在气泡内 */
+  .bubble b,.bubble strong{color:inherit}
+  .msg.ai .bubble b,.msg.ai .bubble strong{color:#0f172a}
+  .bubble code{
+    background:rgba(37,99,235,.07); border:1px solid var(--line); border-radius:5px;
+    padding:1px 6px; font-size:12.5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  .msg.user .bubble code{background:rgba(255,255,255,.15); border-color:rgba(255,255,255,.25)}
+  .bubble pre{
+    background:#0f172a;color:#e2e8f0;border-radius:9px;padding:12px;overflow-x:auto;
+    font-size:12.5px;line-height:1.6;margin:8px 0;white-space:pre-wrap;word-break:break-all;
+  }
+  .msg.user .bubble pre{background:rgba(15,23,42,.25)}
+  .bubble pre code{background:none;border:0;color:inherit;padding:0}
+  .bubble ul,.bubble ol{margin:4px 0 4px 18px}
+  .bubble li{margin:2px 0}
+  /* 分隔线（答案里单独一行的 `---`）。
+     ⚠️ 2026-10-26：原来渲染成**一个空字符串**，等于凭空多一个空行（就是主人报的「各种换行」之一）。
+        现在渲染成一条细线，高度自己撑住、不再靠空行。 */
+  .bubble .hr{border-top:1px solid var(--line);margin:6px 0;height:0}
+  /* markdown 表格：助手按「编码/参数对照优先表格」输出，渲染成真表格才看得清 */
+  .md-tbl{
+    /* 2026-10-23 主人报「表格下面多一个空行」：
+       答案文本侧已经没空行（_strip_blank_lines 把连续换行压成一个），
+       那个"空行"是这里的 8px 上下外边距在视觉上撑出来的。⇒ 压到 3px。 */
+    border-collapse:collapse;margin:3px 0;font-size:12.5px;line-height:1.5;
+    background:#fff;border:1px solid var(--line);max-width:100%;
+  }
+  .md-tbl th,.md-tbl td{
+    border:1px solid var(--line);padding:5px 9px;text-align:left;vertical-align:top;
+    white-space:normal;word-break:break-word;
+  }
+  .md-tbl th{background:#f1f5f9;font-weight:600;color:#334155}
+  .md-tbl tr:nth-child(even) td{background:#fafbfc}
+  .md-tbl td code{white-space:pre-wrap;word-break:break-all;font-size:12px}
+  /* 表格后紧跟的正文贴紧，避免又出现「空行」的观感 */
+  .md-tbl + div{margin-top:0}
+  .msg.user .bubble .md-tbl{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.3)}
+  .msg.user .bubble .md-tbl th,.msg.user .bubble .md-tbl td{border-color:rgba(255,255,255,.3)}
+  .msg.user .bubble .md-tbl th{background:rgba(255,255,255,.16);color:#fff}
+  .src-tag{
+    display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted);
+    background:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 7px;margin:1px 3px 0 0;
+  }
+  .src-line{display:block;margin-top:8px;font-size:11.5px;color:#94a3b8}
+  /* AI 回答下方的结论按钮：一次点击就是一条「这个答案管不管用」的免费信号 */
+  .verdict{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap}
+  .vbtn{
+    border:1px solid var(--line);background:#fff;color:#475569;border-radius:8px;
+    padding:4px 11px;font-size:12.5px;cursor:pointer;transition:.15s;line-height:1.5;font-family:inherit;
+  }
+  .vbtn:hover{border-color:#93c5fd;background:#f8fbff}
+  .vbtn.on-ok{background:#ecfdf5;border-color:#86efac;color:#15803d;font-weight:600}
+  .vbtn.on-bad{background:#fef2f2;border-color:#fca5a5;color:#b91c1c;font-weight:600}
+  /* 2026-10-23 主人要求突出这段字：
+     原来是一行 11.5px 浅灰小字（#94a3b8），跟按钮挤在一起没人注意到，
+     而那正是收集「这答案管不管用」的唯一入口。⇒ 红字 + 加粗 + 浅红底。 */
+  .vnote{
+    font-size:12px;color:#dc2626;font-weight:600;
+    background:#fef2f2;border:1px solid #fecaca;border-radius:7px;
+    padding:3px 9px;line-height:1.5;
+  }
+  /* 标过之后就不再喊了，换低调灰，避免一直刺眼 */
+  .vnote.done{color:#475569;font-weight:500;background:#f8fafc;border-color:var(--line)}
+  .typing{display:inline-flex;gap:4px;align-items:center;padding:4px 2px}
+  .typing i{width:6px;height:6px;border-radius:50%;background:#94a3b8;animation:blink 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.2s}.typing i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,80%,100%{opacity:.25}40%{opacity:1}}
+  /* 首屏引导 */
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .chip{
+    border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:999px;
+    padding:6px 12px;font-size:12.5px;cursor:pointer;transition:.15s;line-height:1.4;
+  }
+  .chip:hover{background:#dbeafe;border-color:#93c5fd}
+  /* ---------- 首屏空态：报障主按钮 + 能力说明（2026-10-28 重构）----------
+     主人定：不再用「报障 / 其他」两张平分秋色的卡 —— 回访用户根本没入口，
+     且「其他」价值不大，不如换成一句「我能帮你做什么」的能力说明。
+     现在：一个主 CTA（报障）+ 一段能力描述 + 一排示例 chip（点了填进输入框，不直接发）。 */
+  .entry{margin:6px 0 2px}
+  .entry-head{font-size:15px;font-weight:700;color:var(--text)}
+  .entry-sub{font-size:12px;color:var(--muted);line-height:1.6;margin-top:5px}
+  .entry-line{margin-top:0;font-size:12.5px;line-height:1.7;color:#334155}
+  .entry-line b{color:var(--text);font-weight:700;margin-right:2px}
+  .entry-cta{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    margin-top:14px;padding:11px 20px;border:0;border-radius:11px;
+    background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;
+    font-size:14.5px;font-weight:600;font-family:inherit;cursor:pointer;
+    box-shadow:0 4px 14px rgba(37,99,235,.28);transition:.15s;
+  }
+  .entry-cta:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(37,99,235,.34)}
+  .entry-caps{
+    margin-top:14px;padding:12px 14px;border:1px solid var(--line);
+    border-radius:12px;background:#f8fafc;
+  }
+  .entry-caps h4{margin:0 0 5px;font-size:12.5px;font-weight:700;color:#334155}
+  .entry-caps p{margin:0;font-size:12px;line-height:1.7;color:var(--muted)}
+  .entry-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  @media (max-width:560px){ .entry-cta{width:100%} }
+
+  /* ---------- 「能做什么」说明弹层（回访用户也能随时看） ---------- */
+  .help-mask{
+    position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:300;
+    display:none;align-items:center;justify-content:center;padding:20px;
+  }
+  .help-mask.show{display:flex}
+  .help-card{
+    width:min(520px,100%);max-height:80vh;overflow:auto;background:#fff;
+    border-radius:16px;padding:18px 18px 16px;box-shadow:0 18px 48px rgba(15,23,42,.28);
+    animation:fadeIn .18s ease;
+  }
+  .help-card h3{margin:0 0 10px;font-size:16px;color:var(--text)}
+  .help-card h4{margin:14px 0 5px;font-size:12.5px;font-weight:700;color:#334155}
+  .help-card p{margin:0;font-size:12.5px;line-height:1.75;color:#475569}
+  .help-card .help-close{
+    float:right;border:0;background:transparent;color:#94a3b8;font-size:18px;
+    line-height:1;cursor:pointer;padding:0 4px;border-radius:6px;
+  }
+  .help-card .help-close:hover{background:#fef2f2;color:#ef4444}
+
+  /* ---------- 居中确认框（2026-10-28）----------
+     替代浏览器原生 confirm：原生弹窗贴在窗口顶部（Chrome 的"此页面 says"条），
+     鼠标要往上跑一大段，样式也不统一。改成和「能做什么」同一套居中弹层。 */
+  .cfm-mask{
+    position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:320;
+    display:none;align-items:center;justify-content:center;padding:20px;
+  }
+  .cfm-mask.show{display:flex}
+  .cfm-card{
+    width:min(380px,100%);background:#fff;border-radius:14px;padding:20px 20px 16px;
+    box-shadow:0 18px 48px rgba(15,23,42,.28);animation:fadeIn .16s ease;
+  }
+  .cfm-text{margin:0 0 18px;font-size:14px;line-height:1.7;color:var(--text);white-space:pre-wrap}
+  .cfm-btns{display:flex;justify-content:flex-end;gap:10px}
+  .cfm-btn{
+    border:1px solid var(--line);background:#fff;color:#475569;border-radius:9px;
+    padding:8px 18px;font-size:13.5px;font-family:inherit;cursor:pointer;transition:.15s;
+  }
+  .cfm-btn:hover{background:#f8fafc}
+  .cfm-btn.primary{
+    background:linear-gradient(135deg,#3b82f6,#2563eb);border-color:transparent;color:#fff;
+    font-weight:600;box-shadow:0 3px 10px rgba(37,99,235,.24);
+  }
+  .cfm-btn.primary:hover{transform:translateY(-1px)}
+
+  /* ---------- 居中输入框（2026-10-28）：替代原生 prompt（「继续会话」输会话 ID）---------- */
+  .inp-mask{
+    position:fixed;inset:0;background:rgba(15,23,42,.38);z-index:320;
+    display:none;align-items:center;justify-content:center;padding:20px;
+  }
+  .inp-mask.show{display:flex}
+  .inp-card{
+    width:min(420px,100%);background:#fff;border-radius:14px;padding:20px 20px 16px;
+    box-shadow:0 18px 48px rgba(15,23,42,.28);animation:fadeIn .16s ease;
+  }
+  .inp-title{margin:0 0 10px;font-size:14px;line-height:1.6;color:var(--text)}
+  .inp-field{
+    width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:10px;
+    padding:10px 12px;font-size:14px;font-family:inherit;color:var(--text);outline:none;
+    transition:border-color .15s,box-shadow .15s;
+  }
+  .inp-field:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+  .inp-btns{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+
+  /* ---------- 跨天分隔条（2026-10-28）----------
+     过了当天，旧记录继续留在页面上可查看，但**不再作为上下文**发给模型。 */
+  .daysep{
+    display:flex;align-items:center;gap:10px;
+    font-size:11.5px;color:#94a3b8;text-align:center;line-height:1.5;
+  }
+  .daysep::before,.daysep::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  /* ---------- 首屏报障信息卡 ---------- */
+  .icard{
+    background:linear-gradient(180deg,#ffffff,#f8faff);
+    border:1px solid #dbeafe; border-radius:16px; padding:16px 16px 14px;
+    box-shadow:0 6px 22px rgba(37,99,235,.07); animation:fadeIn .22s ease;
+  }
+  .icard-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:15px;font-weight:700;color:var(--text)}
+  .icard-hd .badge{font-size:11px;font-weight:600;color:#1d4ed8;background:#dbeafe;border-radius:6px;padding:2px 7px}
+  /* 关闭按钮（2026-09-24 主人定）：推到表头最右，点它放弃本次报障、回到首屏默认状态 */
+  .icard-close{margin-left:auto;border:0;background:transparent;color:#94a3b8;font-size:16px;
+               line-height:1;cursor:pointer;padding:2px 7px;border-radius:6px;transition:.15s}
+  .icard-close:hover{background:#fef2f2;color:#ef4444}
+  .icard-sub{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.65}
+  .icard-sec{margin-top:14px}
+  .f-label{display:block;font-size:12.5px;font-weight:600;color:#334155;margin-bottom:6px;line-height:1.4}
+  .f-label .req{color:var(--bad);font-weight:700;margin-left:2px}
+  .f-label em{font-style:normal;font-weight:400;font-size:11.5px;color:#94a3b8;margin-left:4px}
+  .icard-sec .chips{margin-top:0}
+  .chip.on{background:#2563eb;border-color:#2563eb;color:#fff}
+  .chip.on:hover{background:#1d4ed8;border-color:#1d4ed8}
+  .icard-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+  .fld{display:flex;flex-direction:column;min-width:0}
+  .fld.full{grid-column:1 / -1}
+  .fld input,.fld textarea{
+    width:100%; border:1px solid var(--line); border-radius:10px; padding:8px 11px;
+    font-size:13px; font-family:inherit; color:var(--text); background:#fff; outline:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .fld textarea{resize:vertical; min-height:64px; line-height:1.6}
+  .fld input:focus,.fld textarea:focus{border-color:var(--brand); box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+  .fld input::placeholder,.fld textarea::placeholder{color:#a9b4c4}
+  .icard-ft{display:flex;align-items:center;gap:10px;margin-top:15px;padding-top:12px;border-top:1px dashed #dbeafe;flex-wrap:wrap}
+  .icard-count{font-size:12px;color:var(--muted)}
+  .icard-count b{color:#1d4ed8;font-size:13px}
+  .icard-send{
+    margin-left:auto; border:0; border-radius:11px; padding:9px 18px; cursor:pointer;
+    background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; font-size:13.5px; font-weight:600;
+    box-shadow:0 3px 10px rgba(37,99,235,.28); transition:.15s;
+  }
+  .icard-send:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8)}
+  .icard-send:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+  /* ---------- 输入区 ---------- */
+  footer{
+    flex:none; border-top:1px solid var(--line); background:rgba(255,255,255,.92);
+    backdrop-filter:blur(8px); padding:10px 0 calc(14px + env(safe-area-inset-bottom));
+  }
+  .composer{max-width:860px; margin:0 auto; padding:0 14px}
+  .toolbar{display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap}
+  .hint-tip{font-size:11.5px;color:var(--muted)}
+  /* ---------- 勾选复制给人工（2026-09-27：这一组在底部操作行内，有对话才显示） ---------- */
+  .pickbar{display:none; align-items:center; gap:10px; flex-wrap:wrap}
+  .copy-btn{
+    border:0;border-radius:11px;padding:8px 14px;cursor:pointer;font-family:inherit;
+    background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;font-size:13px;font-weight:600;
+    box-shadow:0 3px 10px rgba(37,99,235,.26);transition:.15s;
+    display:inline-flex;align-items:center;gap:6px;
+  }
+  .copy-btn:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8)}
+  .copy-btn:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
+  .pickinfo{font-size:11.5px;color:var(--muted)}
+  .pickinfo b{color:var(--brand)}
+  .mini-link{
+    border:0;background:none;color:var(--brand);font-size:11.5px;cursor:pointer;
+    padding:0 2px;text-decoration:underline;font-family:inherit;
+  }
+  .toast{
+    position:fixed;left:50%;bottom:118px;transform:translateX(-50%) translateY(8px);
+    background:#0f172a;color:#fff;font-size:13px;line-height:1.55;padding:10px 16px;border-radius:10px;
+    box-shadow:0 10px 28px rgba(15,23,42,.28);max-width:min(560px,86vw);text-align:center;
+    opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:200;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.ok{background:#15803d}
+  .toast.bad{background:#b91c1c}
+  .box{
+    display:flex; gap:10px; align-items:flex-end;
+    background:#fff; border:1px solid var(--line); border-radius:16px; padding:8px 8px 8px 14px;
+    box-shadow:0 4px 16px rgba(15,23,42,.06); transition:border-color .15s, box-shadow .15s;
+  }
+  .box:focus-within{border-color:var(--brand); box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+  textarea{
+    flex:1; border:0; outline:none; resize:none; font-size:14.5px; line-height:1.55;
+    font-family:inherit; color:var(--text); background:transparent; max-height:150px; min-height:24px;
+    padding:5px 0;
+  }
+  .send{
+    flex:none; border:0; border-radius:12px; width:44px;height:44px;cursor:pointer;
+    background:linear-gradient(135deg,#3b82f6,#2563eb); color:#fff; font-size:18px;
+    display:flex;align-items:center;justify-content:center;transition:.15s;
+    box-shadow:0 3px 10px rgba(37,99,235,.3);
+  }
+  .send:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8)}
+  /* 附件按钮（2026-10-27）：跟发送键同高但更低调 —— 它是次要动作，不该抢发送键的视觉优先级 */
+  .attach-btn{
+    flex:none; border:0; border-radius:12px; width:40px;height:44px;cursor:pointer;
+    background:transparent; color:var(--muted); font-size:19px; line-height:1;
+    display:flex;align-items:center;justify-content:center;transition:.15s;
+    padding:0;
+  }
+  .attach-btn:hover{background:var(--brand-soft); color:var(--brand)}
+  .attach-btn:active{transform:scale(.94)}
+  .attach-btn.dragging{background:var(--brand-soft); color:var(--brand)}
+  .send:disabled{opacity:.5; cursor:not-allowed; box-shadow:none}
+  .filebar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+  /* 发生时间：报障卡的「发生时间」是全页唯一的时间来源，这里只是它的显示/修正入口。
+     有值 → 只读徽标（点「修改」可改）；无值或待修正 → 展开输入框。
+     附加日志按这个时间「前后 1 小时」截取。 */
+  .timebox{
+    display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);
+    border:1px solid var(--line);background:#fff;border-radius:9px;padding:4px 8px;
+    box-shadow:0 1px 2px rgba(0,0,0,.03);transition:.15s;
+  }
+  .timebox b{font-weight:600;color:#334155}
+  .timebox .tval{color:var(--text);font-weight:600;font-size:12.5px;font-variant-numeric:tabular-nums}
+  .timebox .tedit{
+    border:0;background:none;color:var(--brand);font-size:11.5px;cursor:pointer;
+    padding:0 2px;text-decoration:underline;font-family:inherit;
+  }
+  .timebox input{
+    border:0;outline:none;background:transparent;font-size:12.5px;
+    font-family:inherit;color:var(--text);min-width:172px;
+  }
+  .timebox.miss{border-color:#fca5a5;background:#fef2f2;box-shadow:0 0 0 3px rgba(239,68,68,.1)}
+  .timebox.miss b{color:#b91c1c}
+  /* ⚠️ 必须显式写：.timebox 设了 display:inline-flex，作者样式会盖掉 UA 的 [hidden]{display:none}，
+     不补这条则 hidden 属性完全失效（按钮/徽标藏不住）。 */
+  .timebox[hidden]{display:none}
+  /* ---------- 日期选择：把「点开日历」的区域放到输入框左边 ----------
+     Chrome 默认把 ::-webkit-calendar-picker-indicator（点开日历的图标）放在输入框最右侧，
+     #fTime（报障卡 ⑥ 发生时间）与 #logTime（底部时间框）都改成图标在左、时间文本紧随其后。
+     ⚠️ 别用 flex(row-reverse) 那套：实测只让「文本+图标」整体贴左，图标仍在文本右边（没换位）。
+     绝对定位所见即所得：图标钉在框内左侧，用 padding-left 把文本让出来。 */
+  #fTime,#logTime{position:relative}
+  #fTime{padding-left:32px}
+  #logTime{padding-left:26px}
+  #fTime::-webkit-calendar-picker-indicator,
+  #logTime::-webkit-calendar-picker-indicator{
+    position:absolute;left:10px;top:50%;transform:translateY(-50%);
+    margin:0;cursor:pointer;opacity:.72;
+  }
+  #logTime::-webkit-calendar-picker-indicator{left:6px}
+  #fTime::-webkit-calendar-picker-indicator:hover,
+  #logTime::-webkit-calendar-picker-indicator:hover{opacity:1}
+  #logFile{display:none}
+  /* ---------- 故障描述下的报障截图 ---------- */
+  .imgrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px}
+  .img-add{
+    border:1px dashed #bfdbfe;background:#f8faff;color:#1d4ed8;border-radius:9px;
+    padding:6px 12px;font-size:12.5px;cursor:pointer;font-family:inherit;transition:.15s;
+  }
+  .img-add:hover{background:#eff6ff;border-color:#93c5fd}
+  .img-add:disabled{opacity:.5;cursor:not-allowed}
+  #fImgs{display:none}
+  .img-hint{font-size:11.5px;color:var(--muted)}
+  .thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
+  /* 拖拽图片到输入框时的高亮（2026-10-27）：让用户知道"松手就会加进来" */
+  #input.dragging{
+    border-color:var(--brand) !important;
+    background:#eff6ff !important;
+    box-shadow:0 0 0 3px rgba(37,99,235,.15) !important;
+  }
+  .thumb{
+    position:relative;width:80px;height:80px;border-radius:9px;overflow:hidden;
+    border:1px solid var(--line);background:#f1f5f9;
+  }
+  .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+  .thumb .rm{
+    position:absolute;top:3px;right:3px;width:19px;height:19px;border-radius:50%;border:0;
+    background:rgba(15,23,42,.66);color:#fff;font-size:12px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;padding:0;
+  }
+  .thumb .up{
+    position:absolute;inset:auto 0 0 0;background:rgba(37,99,235,.88);color:#fff;
+    font-size:10px;text-align:center;padding:2px 0;line-height:1.2;
+  }
+  /* ---------- 已附加的排查日志：横条卡片（文件 + 截取结果 + 删除） ----------
+     截图是 80×80 缩略图，日志是「一个文件 + 一行说明」，所以不做成方块而做成横条。
+     ⚠️ 卡片和 footer 可能各挂一份（同一个对象渲染到两个槽位），样式必须与容器无关。 */
+  .attach-list{display:flex;flex-direction:column;gap:7px;margin-top:9px}
+  .attach-list:empty{display:none}
+  #logSlotFoot{flex-basis:100%;margin-top:2px}   /* footer 里独占一行，不跟时间框挤在一起 */
+  .attach{
+    display:flex;align-items:flex-start;gap:9px;border:1px solid #bfdbfe;background:#f8faff;
+    border-radius:10px;padding:8px 10px;max-width:420px;
+  }
+  .attach .ico{font-size:15px;line-height:1.35;flex:none}
+  .attach .info{min-width:0;flex:1}
+  .attach .nm{
+    font-size:12.5px;font-weight:600;color:#1e3a8a;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .attach .sub{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:2px}
+  .attach .sub b{color:#15803d;font-weight:600}
+  .attach .rm{
+    flex:none;border:0;background:none;color:#94a3b8;font-size:13px;cursor:pointer;
+    padding:0 2px;line-height:1.3;font-family:inherit;
+  }
+  .attach .rm:hover{color:#b91c1c}
+  /* 等待补「发生时间」才能截取的暂存态 */
+  .attach.wait{border-color:#fde68a;background:#fffbeb}
+  .attach.wait .nm{color:#92400e}
+  .attach.wait .sub{color:#a16207}
+  .fld.miss input,.fld.miss textarea{border-color:#fca5a5;background:#fef2f2}
+  /* 消息气泡里的报障截图 */
+  .msgimgs{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .msgimgs img{
+    max-width:156px;max-height:156px;border-radius:8px;border:1px solid var(--line);
+    display:block;cursor:zoom-in;background:#f1f5f9;
+  }
+  .errline{display:none;font-size:12.5px;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;
+    border-radius:9px;padding:8px 12px;margin-top:8px}
+  /* 底部隐私说明条。
+     ⚠️ 2026-10-23 主人要求：**文案去掉、高度保留** ——
+        文案本身不要了（那行链路说明太长、且每次都要念一遍），
+        但元素**不能删**：它在输入框下面撑着 18px 的高度，删了页脚会突然变矮、
+        输入框和底边挤在一起，视觉上很憋。
+        所以：元素留着、文字清空、给固定高度（≈ 原 11px × 1.6 = 17.6px 取整）。
+        要恢复文案，把文字填回 HTML 里那个 div 即可。 */
+  .privacy{font-size:11px;color:#94a3b8;margin-top:8px;line-height:1.6;text-align:center;height:18px}
+  @media(max-width:600px){
+    .bubble{max-width:88%}
+    header{padding:12px 12px 8px; flex-wrap:wrap}
+    .statusline{white-space:normal; font-size:13px}
+    .statusline.off{font-size:13.5px; width:auto}
+    .icard{padding:14px 13px 12px}
+    .icard-grid{grid-template-columns:1fr; gap:11px}
+    .icard-send{margin-left:0; width:100%}
+    .icard-count{width:100%}
+  }
+</style>
+</head>
+<body data-page-node-id="abj4c3PLy8DeZylObMmfdd">
+
+<header data-page-node-id="La4IBV2cQ5u0qxoFz2JEF1">
+  <div class="logo" data-page-node-id="PaQCS1B9s6sm8iBOEz3LO8">🛠</div>
+  <!-- 2026-09-27 主人要求：会话 ID 放到标题后方（talkID:xxxx），标题与工具按钮收进同一行紧凑布局 -->
+  <div class="hwrap">
+    <div class="hmain">
+      <h1 data-page-node-id="38KmZH2M5Y3jw7I8vpaw8g">AskOps · AI 运维助手<button type="button" class="talkid" id="sidBtn" hidden></button></h1>
+      <!-- 2026-09-27 主人三次调整：继续会话 / 报障 / 管理 / 清空对话 已全部下移到底部操作行
+           （与「📋 复制给人工」同一行），页头只留标题 + talkID。 -->
+    </div>
+    <!-- 副标题 = 实时状态（2026-10-23 主人要求）：AI在线 · 内网在线 · 知识 N 篇。
+         ⚠️ 文案由 checkHealth() 写，别在这里写死 —— 写死就会和真实状态不一致。 -->
+    <small class="hsub" id="hsubStatus" data-page-node-id="zmQjppkyT8XU5AzqWAta8r"
+           title="助手服务 / 内网通道 / 知识库规模的实时状态，每 60 秒刷新一次"><span class="hdot"></span><span id="hsubText">助手检测中 · 内网检测中 · 知识 — 篇</span></small>
+    <!-- 服务状态行：默认隐藏（2026-10-23 主人要求正常时不显示这一行），
+         只在「离线 / 排队 / 处理中」时由 JS 加 .show 显出来。 -->
+    <span class="statusline" id="statusLine"><span class="dot" id="statusDot" data-page-node-id="0QfkjAOcfHnnMc5KTEnZCv"></span><span id="statusText" data-page-node-id="Oqhjg7wkBbzPMo8mpoRuee"></span></span>
+  </div>
+</header>
+
+<main id="main" data-page-node-id="RrKP3sZGIbdWCUIGunwSZ1">
+  <div class="feed" id="feed" data-page-node-id="C3UqGi9R1fH6XIDXrqsOWH"></div>
+</main>
+
+<footer data-page-node-id="CxX4mdRz9D3zYmFregqoBw">
+  <div class="composer" data-page-node-id="qs2Ep9vrxSCIA8mfJVPLEM">
+    <!-- 2026-09-27 主人三次调整：底部操作行 ——
+         「📋 复制给人工 + 已选 N/M 条」在前（无对话时整条隐藏，由 updatePickBar 控制），
+         后面追加 继续会话 / 报障 / 管理 / 清空对话（这四个始终可见）。
+         2026-09-24 主人定：底部的「发生时间 / 附加排查日志 / 提示文字」三样一并去掉 ——
+         报障卡里本来就有（⑥ 发生时间、📎 附加排查日志），底部再来一份是重复的。 -->
+    <div class="bottombar">
+      <div class="pickbar" id="pickBar">
+        <button type="button" class="copy-btn" id="copyBtn" title="把勾选的对话整理成交接简报并复制给人工">📋 复制给人工</button>
+        <span class="pickinfo" id="pickInfo"></span>
+      </div>
+      <button type="button" class="icon-btn" id="joinBtn"
+              title="输入会话 ID，继续之前在别的电脑上进行的会话（服务端保留 7 天）">📥 继续会话</button>
+      <!-- 「报障」：只在自由聊天模式（首屏选了「其他」）显示 —— 那时页面上没有信息卡，
+           用户想重新走报障就得有个入口。报障模式下已有卡片，故隐藏。 -->
+      <button type="button" class="icon-btn" id="reportBtn" style="display:none"
+              title="回到报障信息卡，重新填一次报障">📝 报障</button>
+      <!-- 「❓ 能做什么」：任何时候都能看的能力说明 —— 回访用户没有首屏入口也能随时查。 -->
+      <button type="button" class="icon-btn" id="helpBtn"
+              title="看看助手能帮你做哪些事">❓ 能做什么</button>
+      <!-- 「⚙ 管理」：默认隐藏，页面加载时探测 /admin/status，只有管理员（后端判 X-Auth-User）
+           才显示。⚠️ 前端隐藏只是体验，真正的权限在后端，前端绕不过去。 -->
+      <button type="button" class="icon-btn" id="adminBtn" style="display:none"
+              title="管理员面板：内网通道状态 / 排队 / 用户停用恢复 / 系统状态">⚙ 管理</button>
+      <!-- 「🗑 清空对话」：只清当前对话、保持当前模式（2026-09-24 由「＋ 新报障」改用途） -->
+      <button type="button" class="icon-btn" id="newChatBtn"
+              title="清空当前这段对话（不会切到报障；要重新报障请用左边的「📝 报障」）">🗑 清空对话</button>
+    </div>
+    <div class="toolbar" data-page-node-id="ycXnvCXJ6cuoKHqFTnaLtw">
+      <input type="file" id="logFile" accept=".log,.txt,.md,.json,.err,.zip,text/plain,application/zip" data-page-node-id="L7dsCJiDVupTFQtJAHiAdA">
+      <!-- 附件选择的隐藏 input（2026-10-27）。
+           ⚠️ 刻意放在这里、不放 .box 里 —— .box 是 flex 布局，塞个隐藏 input 进去
+              会让「附件按钮 → 发送键」的相邻关系被打断，日后调布局容易踩坑。 -->
+      <input type="file" id="attachFile" accept="image/*,.txt,text/plain" multiple style="display:none">
+      <!-- 已选附件的预览区（图片缩略图 + txt 文件条）。
+           2026-10-27 主人要求：入口按钮挪到发送键旁边（见下方 .box），
+           但**预览仍留在输入框上方** —— 那儿横向空间大，缩略图排得开。 -->
+      <div class="thumbs" id="chatThumbs"></div>
+      <div class="attach-list" id="logSlotFoot"></div>
+    </div>
+    <div class="box" data-page-node-id="BCYV2Ef977PiNaLyjAiKHO">
+      <textarea id="input" rows="1" placeholder="继续补充信息，或直接提问…（Enter 发送 / Shift+Enter 换行；截图可直接 Ctrl+V 粘贴）"></textarea>
+      <!-- 附件入口（2026-10-27 主人要求：放发送键旁边，替代原来在输入框上方的「📷 图片」）。
+           ⚠️ 只收**图片**和 **txt**：zip/rar/exe 这类一律拒收并提示（见 addAttachFiles）。
+           accept 只是选择框的建议值，**不能当校验** —— 用户仍可切成「所有文件」，所以代码里还要判类型。 -->
+      <button type="button" class="attach-btn" id="attachBtn"
+              title="添加附件：图片（jpg/png…）或 txt 文本；也可以直接粘贴截图">📎</button>
+      <button class="send" id="sendBtn" disabled title="发送" data-page-node-id="vt48ogRyoKpSVBIVh816xu">➤</button>
+    </div>
+    <div class="errline" id="errline" data-page-node-id="nLejUBFwhj9zHSuOBJ8wWp"></div>
+    <!-- 底部隐私说明条：**文案已按要求去掉，但元素保留**（撑住 18px 高度，见 .privacy 注释）。
+         原文（需要时填回这个 div 即可）：
+         🔒 浏览器 → Cloudflare 网关 → 本机知识库服务 → DeepSeek（问题与日志会发送至云端大模型，请勿提交明文密码/token） -->
+    <div class="privacy" data-page-node-id="MqPRkUNg0wbgmt631vhtUu" aria-hidden="true"></div>
+  </div>
+</footer>
+
+<!-- 「能做什么」说明弹层（2026-10-28）：替代原来的「其他」入口 —— 用一段说明讲清能做什么，
+     比让用户选一张没实际用途的卡更有用。底栏「❓ 能做什么」随时可打开，回访用户也能看。 -->
+<div class="help-mask" id="helpMask">
+  <div class="help-card" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <button type="button" class="help-close" id="helpClose" aria-label="关闭">✕</button>
+    <h3 id="helpTitle">🛠 我能帮你做什么？</h3>
+    <p>我是 AskOps · AI 运维助手。你可以直接把问题、报错截图或日志丢进来，我会结合知识库帮你定位。</p>
+    <h4>可以直接问</h4>
+    <p>查订单 / 单号、查会员手机号、问后台配置路径、退货限额与规则、预售价 / 定金规则等。</p>
+    <h4>常见故障都能排</h4>
+    <p>收银台支付 · 小票打印 · 退货退款 · 离线退 / 补登 · 预售定金 · 码牌与设备 · 账号登录 · 后台配置。</p>
+    <h4>怎么问更快</h4>
+    <p>带上 POS 单号、商场 / 店铺、终端类型、报错原文或截图；有日志的话附上发生时间，我能按时间窗截取相关内容。</p>
+  </div>
+</div>
+
+<!-- 居中确认框（2026-10-28）：替代原生 confirm。点遮罩/取消 = 否，Enter = 确定，Esc = 取消。 -->
+<div class="cfm-mask" id="cfmMask">
+  <div class="cfm-card" role="dialog" aria-modal="true" aria-labelledby="cfmText">
+    <p class="cfm-text" id="cfmText"></p>
+    <div class="cfm-btns">
+      <button type="button" class="cfm-btn" id="cfmNo">取消</button>
+      <button type="button" class="cfm-btn primary" id="cfmYes">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 居中输入框（2026-10-28）：替代原生 prompt，用于「继续会话」粘贴会话 ID。 -->
+<div class="inp-mask" id="inpMask">
+  <div class="inp-card" role="dialog" aria-modal="true" aria-labelledby="inpTitle">
+    <p class="inp-title" id="inpTitle"></p>
+    <input class="inp-field" id="inpField" type="text" autocomplete="off" spellcheck="false">
+    <div class="inp-btns">
+      <button type="button" class="cfm-btn" id="inpNo">取消</button>
+      <button type="button" class="cfm-btn primary" id="inpYes">继续</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ===== 老浏览器兼容垫片（2026-11-02）=====
+   起因：用户反馈「非 Chrome 浏览器验证通过后进不了助手」。
+   本页用了 20+ 处 `AbortSignal.timeout(ms)`，而它是 **Safari 16.4 / Firefox 100 才有的**，
+   更老的浏览器里每调一次就抛 `TypeError: AbortSignal.timeout is not a function`，
+   而很多调用点在事件回调里 ⇒ 表现为「按钮点了没反应 / 页面卡住」。
+   `crypto.randomUUID` 同理（Safari 15.4+、且非 HTTPS 下不存在）。
+   垫片是幂等的，新浏览器完全不受影响。 */
+if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout !== "function") {
+  AbortSignal.timeout = function (ms) {
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () {
+      try { ctrl.abort(new DOMException("TimeoutError", "TimeoutError")); }
+      catch (e) { ctrl.abort(); }
+    }, ms || 0);
+    // 手动取消时把定时器也清掉，避免计时器堆积
+    try {
+      ctrl.signal.addEventListener("abort", function () { clearTimeout(timer); });
+    } catch (e) {}
+    return ctrl.signal;
+  };
+}
+if (typeof crypto !== "undefined" && typeof crypto.randomUUID !== "function") {
+  crypto.randomUUID = function () {
+    var b = new Uint8Array(16);
+    if (crypto.getRandomValues) crypto.getRandomValues(b);
+    else for (var i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+    b[6] = (b[6] & 0x0f) | 0x40;              // version 4
+    b[8] = (b[8] & 0x3f) | 0x80;              // variant
+    var h = "";
+    for (var j = 0; j < 16; j++) h += (b[j] + 0x100).toString(16).slice(1);
+    return h.slice(0,8)+"-"+h.slice(8,12)+"-"+h.slice(12,16)+"-"+h.slice(16,20)+"-"+h.slice(20);
+  };
+}
+/* ===== 配置区 ===== */
+/* ⚠️ 这里曾硬编码一个网关密钥（kb-ask-…），2026-09-24 安全排查时移除：
+   它在公网可下载的页面里明文存在，任何使用者 F12 就能复制走，
+   进而调用 /cases（拉全量案例库）、/coach（写记录改助手行为）等管理接口。
+   现在**前端不再持有任何密钥**——鉴权完全由网关层的登录令牌（HttpOnly Cookie）负责，
+   转发给本机时由 Worker 自己补 ORIGIN key。 */
+const API = "/ask";
+/* 「源码」是**内部叫法**，一线看不懂也不该看到（2026-09-18 主人指出）。
+   对外统一用代号 —— 主人 2026-09-25 定名「蜗牛」。
+   ⚠️ 要换词只改这一个常量：页面上所有对外文案都会跟着变。 */
+const CODENAME_SRC = "蜗牛";
+const LS_KEY = "pos_ask_thread_v1";
+const LS_TIME_KEY = "pos_ask_reporttime_v1";
+const LS_SID_KEY  = "pos_ask_sid_v1";   // 会话 ID：换台电脑凭它把整段会话拉回来（保存 7 天）
+const MAX_THREAD = 100;           // localStorage 最多保留消息条数（超出丢最旧）
+                                  // 2026-10-28 主人要求 40→100。体积评估：单条正文上限 6000 字，
+                                  // 最坏 100×6000≈60 万字≈1.2MB；截图只存 id/url、不存 base64，
+                                  // 仍远低于 localStorage 约 5MB 配额；写满时还有渐进丢弃兜底。
+const HISTORY_ROUNDS = 10;        // 每次请求携带最近多少轮（轮=一问一答）
+const MAX_IMGS = 4;               // 单次报障最多几张截图
+const IMG_MAX_EDGE = 1400;        // 截图压缩后的最长边（够看清弹窗文字，又不至于过大）
+
+const $ = id => document.getElementById(id);
+const feed = $("feed"), mainEl = $("main"), input = $("input");
+let thread = [];      // [{role:'user'|'assistant', content, code?, sources?, imgs?}]
+let busy = false;
+const picked = new Set();   // 已勾选待复制的消息下标（对应 thread 索引）
+let copying = false;        // 「复制给人工」进行中（生成摘要 + 写剪贴板）
+let _copyAsk = false;       // 「还没勾选」的确认框开着（防连点弹出两个）
+let _reportTime = "";       // 全页唯一的时间来源（"YYYY-MM-DDTHH:MM:SS"）：报障卡填、附加日志用
+let _timeEditing = false;   // 底部时间徽标是否处于「修改中」（展开输入框）
+let _cardImgs = [];         // 报障卡里已选的截图 [{id,url,data,name,up}]
+/* 主对话输入框的待发图片（2026-10-27）。
+   ⚠️ 为什么和 _cardImgs 分开存：报障卡是「一次性提交后清空」的表单，
+      而底部输入框是常驻的 —— 混用一个数组会让「卡片里的图」在自由提问时被带出去。
+      两者最终都汇入 doSend 的 images，但生命周期各自独立。 */
+let _chatImgs = [];         // [{id,url,data,name,up}]
+let _logAttach = null;      // 已截取好、待随下一条消息提交的日志 {name,size,win,note,text,took,rows,file}
+let _sid = "";              // 当前会话 ID（首次同步时由服务端分配）：展示 / 复制 / 交接 / 跨设备续聊都用它
+let _entryMode = "";        // 首屏状态："" 空态（报障主按钮 + 能力说明）/ "report" 报障信息卡
+                            // 2026-10-28：删掉 "other" 态 —— 自由提问直接打字即走 free，无需显式模式
+
+/* ========== 工具 ========== */
+const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function renderMd(md){
+  // 空行不显示（2026-10-23 主人要求「以后不要空行」）：
+  // 后端已做同样的清理，这里是**前端保险层** —— 历史消息、旧数据、异常路径仍可能带空行。
+  md = (md||"").replace(/\r\n?/g,"\n").replace(/\n{2,}/g,"\n");
+  const lines = esc(md).split("\n");
+  const out=[]; let inPre=false, preBuf=[];
+  const flushPre=()=>{ if(preBuf.length){ out.push("<pre><code>"+preBuf.join("\n")+"</code></pre>"); preBuf=[]; } };
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i], t=line.trim();
+    if(t.startsWith("```")){ if(inPre){flushPre();inPre=false;} else inPre=true; continue; }
+    if(inPre){ preBuf.push(line); continue; }
+    // 表格：首行 |…| 且下一行是分隔行 |---|---| 才认，否则带竖线的普通文本会被误判。
+    if(t.startsWith("|") && /^\|[\s:\-|]+\|$/.test((lines[i+1]||"").trim())){
+      flushPre();
+      const rows=[];
+      while(i<lines.length && lines[i].trim().startsWith("|")){ rows.push(lines[i].trim()); i++; }
+      i--;
+      out.push(tableHtml(rows));
+      continue;
+    }
+    if(/^#{1,4}\s/.test(t)){ flushPre(); out.push(`<b>${t.replace(/^#+\s*/,"")}</b>`); continue; }
+    if(/^[-*]\s+/.test(t)){ flushPre(); out.push(`<div>• ${t.replace(/^[-*]\s+/,"")}</div>`); continue; }
+    if(/^\d+[.、)]\s+/.test(t)){ flushPre(); out.push(`<div>${t}</div>`); continue; }
+    if(/^(-{3,}|\*{3,})$/.test(t)){ flushPre(); out.push('<div class="hr"></div>'); continue; }
+    flushPre(); out.push(line);
+  }
+  flushPre();
+  /* ⚠️⚠️ 2026-10-26 修（主人报「回答中还是出现了各种的换行」）：
+     上面每条「编号步骤 / 项目符号」都被包成 `<div>`，是**块级元素**（自己就占一行）；
+     而 `out.join("\n")` 又在每个条目之间插了一个 `\n`。`.bubble` 是
+     `white-space:pre-wrap` ⇒ 那个 `\n` 会**再渲染出一整行空白**。
+     结果就是：每条步骤、每个 `•` 后面都多一个空行（实测截图：7 条内容撑出 6 个空行）。
+     ⚠️ 后端 `_strip_blank_lines` 已经把**文本里**的空行去干净了（实测该答案 0 个空行），
+        所以这个空行纯粹是**渲染层造出来的** —— 只改文本永远修不掉。
+     修法：块级标签（div/table/pre）后面的那个 `\n` 删掉；行内标签（`<b>`）保留，
+        因为普通文本行还是要靠它换行。 */
+  let html = out.join("\n")
+    .replace(/<\/(div|table|pre|ul|ol|li|p)>\n/g, "</$1>")
+    .replace(/\[S(\d+)\]/g,'<b style="color:#7c3aed">[S$1]</b>')
+    .replace(/\[(\d+)\]/g,'<b style="color:#2563eb">[$1]</b>');
+  // 先 code 后 bold
+  html = html.replace(/`([^`]+)`/g,"<code>$1</code>")
+             .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+  return html;
+}
+/* markdown 表格（| 表头 | …  +  |---|---|）→ 真 <table>。
+   助手被要求「编码/参数/卡种对照优先用表格」，但气泡原本只会把竖线原样显示出来。
+   ⚠️ 表格 HTML 必须拼成**一行**：.bubble 是 white-space:pre-wrap，拼进去的换行会变成可见空白。 */
+function tableHtml(rows){
+  const cells = r => r.replace(/^\|/,"").replace(/\|$/,"").split("|").map(c=>c.trim());
+  const head = cells(rows[0]), body = rows.slice(2).map(cells);
+  let h = '<table class="md-tbl"><thead><tr>'
+        + head.map(c=>`<th>${c}</th>`).join("")
+        + '</tr></thead><tbody>';
+  for(const r of body){
+    h += '<tr>' + head.map((_c,i)=>`<td>${r[i]||""}</td>`).join("") + '</tr>';
+  }
+  return h + '</tbody></table>';
+}
+function nowStr(){ const d=new Date(); const p=n=>String(n).padStart(2,"0"); return `${p(d.getHours())}:${p(d.getMinutes())}`; }
+function scrollBottom(){ requestAnimationFrame(()=>{ mainEl.scrollTop = mainEl.scrollHeight; }); }
+
+/* ========== 渲染 ========== */
+/* 「🗑 清空对话」的可用性：**只在真的有对话时**才可点（2026-09-24 主人定：
+   没对话时置灰，别让人点了没反应）。
+   ⚠️⚠️ 2026-10-23 修 bug（主人报「清空会话按钮不能用了」）：
+      这一行原来只写在 renderThread() 里，而**发消息走的是 renderMsg(m) 增量追加**
+      （见 doSend：thread.push 之后只调 renderMsg，从不调 renderThread）⇒
+      thread 从 0 涨到 N 之后按钮**一直停在 disabled**，用户点它毫无反应
+      （只有刷新页面走 renderThread 才恢复）。现在收敛成这一个函数，
+      凡是 thread 数量变化的地方（renderThread / renderMsg）都调它。 */
+function updateClearBtn(){
+  const b=$("newChatBtn"); if(b) b.disabled = (thread.length===0);
+  // 「📝 报障」：空态由首屏大按钮承担，一旦有对话/有历史就常驻底栏。
+  // ⚠️ 2026-10-28：这条必须放在这里（而不是只放 renderThread）—— 发消息走 renderMsg 增量追加，
+  //    不经过 renderThread，否则首条消息发出后按钮要等下次整页渲染才出现。
+  const rb=$("reportBtn"); if(rb) rb.style.display = (thread.length===0) ? "none" : "";
+}
+function renderThread(){
+  feed.innerHTML="";
+  updateClearBtn();
+  if(thread.length===0){
+    updatePickBar();
+    // 首屏两态：报障模式 → 摆信息卡；其余 → 摆「报障主按钮 + 能力说明」（2026-10-28 去掉「其他」卡）
+    if(_entryMode==="report")      renderWelcome();
+    else                           renderEntry();
+    syncTimeBox();
+    return;
+  }
+  // ---- 跨天分隔条（2026-10-28）：旧记录照常显示，但明确标出「不参与当前问答」----
+  const _today = _dayKey();
+  let _firstToday = -1;
+  thread.forEach((m,i)=>{ if(_firstToday < 0 && m && m.d === _today) _firstToday = i; });
+  thread.forEach((m,i)=>{
+    if(i === _firstToday && i > 0) feed.appendChild(_daySep(`以上 ${i} 条为历史记录，不参与当前问答`));
+    renderMsg(m);
+  });
+  if(_firstToday === -1 && thread.length){
+    feed.appendChild(_daySep(`以上 ${thread.length} 条为历史记录，不参与当前问答；直接输入即可开始今天的新对话`));
+  }
+  updatePickBar();
+  syncTimeBox();
+  scrollBottom();
+}
+function _daySep(text){
+  const d=document.createElement("div");
+  d.className="daysep";
+  d.textContent=text;
+  return d;
+}
+/* 首屏报障信息卡：字段取自真实排障案例（更新后打印联数/logo未居中/激活码/支付CLOSE等）
+   2026-09-14 重构：删「环境 / 已尝试过 / 报错原文」（门店填不动，且报错原文直接截图更快）；
+   时间只保留一个「发生时间」（同时充当附加日志的截取基准）；故障描述下移并支持传截图。 */
+const CARD_MODS = ["收银台支付","小票打印","退货退款","离线退","补登","预售定金","码牌·设备","账号登录","后台配置","其他"];
+const CARD_TYPES = ["大POS","小POS","POS后台"];
+
+/* ---------- 时间：全页唯一的同一个值 ----------
+   报障卡的「发生时间」是唯一来源；底部徽标只是它的显示/修正入口；
+   附加日志按它前后 1 小时截取。三者共用 _reportTime，不各自维护。 */
+const _p2 = n => String(n).padStart(2,"0");
+function fmtDT(v){          // "2026-09-14T14:30:12" -> "2026-09-14 14:30:12"
+  const m=String(v||"").match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+  return m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}:${m[6]||"00"}` : String(v||"");
+}
+function fmtDTshort(v){     // "2026-09-14T14:30:12" -> "09-14 14:30"
+  const m=String(v||"").match(/^\d{4}-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  return m ? `${m[1]}-${m[2]} ${m[3]}:${m[4]}` : String(v||"");
+}
+function setReportTime(v){
+  _reportTime=(v||"").trim();
+  try{ _reportTime ? localStorage.setItem(LS_TIME_KEY,_reportTime) : localStorage.removeItem(LS_TIME_KEY); }catch(_){}
+  syncTimeBox();
+}
+/* ⚠️ 2026-09-24：底部的「发生时间」整块（#timeBox / #logTime / #timeVal / #timeEdit）
+   已按主人要求移除（报障卡里的「⑥ 发生时间」本来就有，底部再来一份是重复的）。
+   因此下面的函数在页面上会**直接 return**（取不到 #timeBox）。
+   之所以保留函数体而不是删掉：① 仍有若干处调用它，删调用点的风险大于留个空转；
+   ② 将来若想恢复底部显示，这里是现成的参照。 */
+function syncTimeBox(){
+  const box=$("timeBox"); if(!box) return;
+  const on=!!_reportTime, showInput = !on || _timeEditing;
+  // ⚠️ 末尾的 `&& !_timeEditing` 不能少。编辑态（点「附加日志文件」但还没填时间）必须让
+  //    时间框真的显示。2026-09-16 的 bug：漏了这个条件 → markLogTimeMissing() 先把 hidden
+  //    去掉、syncTimeBox() 紧跟着又把它藏回去，输入框处在 display:none 的父容器里、没有任何
+  //    布局框，showPicker() 只能把日历面板丢到视口左上角 (0,0) ——
+  //    用户点「📎 附加日志文件」，看到的是左上角莫名冒出一个日期框，而不是上传。
+  box.hidden = !on && !!$("icard") && !_timeEditing;   // 首屏默认交给卡里的「发生时间」，底部不重复出现
+  box.classList.remove("miss");
+  $("timeVal").hidden  = showInput;     // 只读徽标
+  $("timeEdit").hidden = showInput;     // 「修改」
+  $("logTime").hidden  = !showInput;    // 输入框
+  if(!showInput) $("timeVal").textContent = fmtDTshort(_reportTime);
+  else if(document.activeElement!==$("logTime")) $("logTime").value = _reportTime || "";
+}
+
+/* 报障卡刷新入口：卡片渲染时会把实现挂到 window._cardRefresh。
+   ⚠️ 必须有这层间接——addCardImages / renderThumbs 是卡外的顶层函数，
+   直接调卡内的 refreshCard 会 ReferenceError（曾导致「加截图后卡在上传中」）。
+   卡片不在页面上时静默返回，调用方无需判断。 */
+function refreshCard(){ if(typeof window._cardRefresh === "function") window._cardRefresh(); }
+
+/* ---------- 报障截图：压缩 → 存本机 → 只用返回的 id ---------- */
+function compressImage(file){
+  return new Promise((resolve,reject)=>{
+    const fr=new FileReader();
+    fr.onerror=()=>reject(new Error("读取失败"));
+    fr.onload=()=>{
+      const img=new Image();
+      img.onerror=()=>reject(new Error("不是有效的图片"));
+      img.onload=()=>{
+        const sc=Math.min(1, IMG_MAX_EDGE/Math.max(img.width,img.height));
+        const w=Math.max(1,Math.round(img.width*sc)), h=Math.max(1,Math.round(img.height*sc));
+        const cv=document.createElement("canvas"); cv.width=w; cv.height=h;
+        const cx=cv.getContext("2d");
+        cx.fillStyle="#fff"; cx.fillRect(0,0,w,h);   // 透明底转白，否则转 JPEG 会变黑
+        cx.drawImage(img,0,0,w,h);
+        let out=""; try{ out=cv.toDataURL("image/jpeg",0.82); }catch(_){}
+        resolve(out || fr.result || "");
+      };
+      img.src=fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+async function addCardImages(files){
+  for(const f of files){
+    if(_cardImgs.length>=MAX_IMGS){ showToast(`最多上传 ${MAX_IMGS} 张截图，多余的已忽略`,"bad"); break; }
+    if(!f.type || !f.type.startsWith("image/")){ showToast(`「${f.name}」不是图片，已跳过`,"bad"); continue; }
+    const it={id:null, url:null, data:"", name:f.name||"截图", up:"doing"};
+    _cardImgs.push(it); renderThumbs(); refreshCard();
+    try{
+      it.data=await compressImage(f);
+      renderThumbs();
+      // 存本机换 id：这样图片能跨刷新保留、能随「复制给人工」转交，
+      // 也避免把大图塞进 /ask 请求体。上传失败不影响提问（send 时用 base64 兜底）。
+      const r=await fetch("/upload",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({dataUrl:it.data, name:it.name}),
+        signal:AbortSignal.timeout(60000)
+      });
+      const j=await r.json().catch(()=>({}));
+      if(r.ok && j.id){ it.id=j.id; it.url=j.url; it.up="ok"; }
+      else it.up="fail";
+    }catch(e){ it.up="fail"; }
+    renderThumbs(); refreshCard();
+  }
+}
+function renderThumbs(){
+  const box=$("thumbs"); if(!box) return;
+  box.innerHTML="";
+  _cardImgs.forEach((it,i)=>{
+    const d=document.createElement("div"); d.className="thumb";
+    const src=it.data||it.url||"";
+    d.innerHTML=(src?`<img src="${esc(src)}" alt="${esc(it.name)}">`:"")
+      + `<button type="button" class="rm" title="移除这张">✕</button>`
+      + (it.up==="doing" ? `<span class="up">上传中…</span>`
+        : it.up==="fail" ? `<span class="up">离线待发</span>` : "");
+    d.querySelector(".rm").addEventListener("click",()=>{ _cardImgs.splice(i,1); renderThumbs(); refreshCard(); });
+    box.appendChild(d);
+  });
+}
+
+/* ==================== 主对话输入框：附件输入（2026-10-27）====================
+   支持**仅图片 + txt**（主人定），三条入口共用一条管线：
+     · 图片 → compressImage → POST /upload → 换 id → 随消息发 images
+     · txt  → 读文本 → 存 _logAttach → 发送时拼进 question
+     · 其它（zip/rar/exe/pdf…）→ **拒收**，弹提示
+
+   ⚠️ 为什么 accept 不能当校验：accept 只是选择框的默认过滤，用户能切成「所有文件」，
+      拖拽更是完全绕过 accept。所以必须在代码里按 MIME/后缀再判一次。
+*/
+/* 单文件统一上限（2026-11-02 主人定）：图片 / txt / zip 一律 5MB。
+   ⚠️ 后端 KB_UPLOAD_MB / ZIP_MAX_MB 同步为 5；worker 的 body 上限 8MB
+      （5MB 走 base64 后约 6.7MB，正好卡在 8MB 之内）。 */
+const ATTACH_MAX_BYTES = 5 * 1024 * 1024;
+const ATTACH_MAX_TXT_BYTES = ATTACH_MAX_BYTES;   // txt 同上（再大模型也吃不下）
+const ATTACH_MAX_TXT_LINES = 3000;              // 超过就截断，避免撑爆 prompt
+
+function isImageFile(f){
+  return !!(f && f.type && f.type.startsWith("image/"));
+}
+function isTxtFile(f){
+  if(!f) return false;
+  const n = (f.name || "").toLowerCase();
+  return f.type === "text/plain" || n.endsWith(".txt") || n.endsWith(".log");
+}
+/* 拒收提示：把用户实际选了什么说清楚，比「格式不支持」有用 */
+function rejectFile(f){
+  const n = f && f.name ? f.name : "该文件";
+  const ext = (n.match(/\.([a-z0-9]+)$/i) || [])[1] || "";
+  const kind = ext ? `.${ext.toLowerCase()}` : "这个类型";
+  showToast(`不支持 ${kind}：目前只能传图片、txt 或 zip 日志包`, "bad");
+}
+
+/* zip 日志包：直接交给 ingestLogFile（后端解压 + 按时间窗截取），不另写一套。
+   ⚠️ 2026-11-07 主人要求：消息型输入也**必须先有「发生时间」**。
+      原行为是「没填时间就自动取日志末尾 / 最后 1 小时」，但报障时间一旦延迟，
+      这个窗口就会切到错误的一段（漏掉真正出问题的那几分钟）。
+      现在改成与报障卡同一口径：没时间 → 先挂起文件 + 要求补填，
+      填完由 fTime 的监听自动接着按「发生时间 ±1 小时」截取。 */
+async function attachZipFile(f){
+  if(_logAttach){ showToast("已经有 1 份日志附件了，先移除再加", "bad"); return; }
+  if(f.size > ATTACH_MAX_BYTES){
+    showToast(`日志包太大了（${fmtKB(f.size)}），上限 ${fmtKB(ATTACH_MAX_BYTES)}`, "bad"); return;
+  }
+  await ingestLogFile(f, null);   // 不传 autoTail：无时间 → 挂起并提示补填（见 ingestLogFile）
+}
+
+/* txt 附件：读文本 → 存进 _logAttach（复用发送端「拼进问题」的逻辑）。
+   ⚠️ 特意**不走** ingestLogFile —— 那个强依赖「发生时间」并按前后 1 小时截取，
+      是报障场景的产物；在底部输入框里随便问一句，不该被要求先填发生时间。 */
+async function attachTxtFile(f){
+  if(_logAttach){
+    showToast("已经有 1 份文本附件了，先移除再加", "bad"); return;
+  }
+  if(f.size > ATTACH_MAX_TXT_BYTES){
+    showToast(`txt 太大了（${fmtKB(f.size)}），上限 ${fmtKB(ATTACH_MAX_TXT_BYTES)}`, "bad"); return;
+  }
+  let txt = "";
+  try{ txt = await f.text(); }
+  catch(_){ showToast("文件读取失败，请重试", "bad"); return; }
+
+  let lines = txt.split(/\r?\n/);
+  let dropped = 0;
+  if(lines.length > ATTACH_MAX_TXT_LINES){
+    dropped = lines.length - ATTACH_MAX_TXT_LINES;
+    lines = lines.slice(0, ATTACH_MAX_TXT_LINES);
+  }
+  _logAttach = {
+    name: f.name || "文本附件",
+    size: f.size || txt.length,
+    win: "",
+    kind: "txt",
+    note: dropped ? `已附全文（过长，末尾 ${dropped} 行未包含）` : "已附全文",
+    text: lines.join("\n"),
+    took: lines.length, rows: lines.length,
+    file: f,
+  };
+  renderLogAttach();
+  hideErr();
+}
+
+/* 统一入口：按类型分流。图片 / txt / zip 收下，其余拒收。 */
+async function addAttachFiles(files){
+  const list = Array.from(files || []);
+  if(!list.length) return;
+  const imgs = [], txts = [], zips = [], bad = [];
+  for(const f of list){
+    if(isImageFile(f)) imgs.push(f);
+    else if(isTxtFile(f)) txts.push(f);
+    else if(isZipFile(f)) zips.push(f);
+    else bad.push(f);
+  }
+  if(bad.length) rejectFile(bad[0]);          // 只提示第一个，避免一屏 toast
+  if(imgs.length) await addChatImages(imgs);
+  for(const f of txts) await attachTxtFile(f); // txt 一次只收一份（见 attachTxtFile）
+  for(const f of zips) await attachZipFile(f); // zip 同样一次一份
+  refreshSendBtn();
+}
+
+
+async function addChatImages(files){
+  const list = Array.from(files||[]);
+  if(!list.length) return;
+  for(const f of list){
+    if(_chatImgs.length >= MAX_IMGS){
+      showToast(`一次最多 ${MAX_IMGS} 张图，多余的已忽略`, "bad"); break;
+    }
+    if(!f.type || !f.type.startsWith("image/")){
+      showToast(`「${f.name||"该文件"}」不是图片，已跳过`, "bad"); continue;
+    }
+    // 2026-11-02：单文件统一 5MB 上限（压缩前就拦，避免白白吃内存）
+    if((f.size||0) > ATTACH_MAX_BYTES){
+      showToast(`图片太大了（${fmtKB(f.size)}），上限 ${fmtKB(ATTACH_MAX_BYTES)}`, "bad"); continue;
+    }
+    const it = {id:null, url:null, data:"", name:f.name||"粘贴的图片", up:"doing"};
+    _chatImgs.push(it); renderChatThumbs();
+    try{
+      it.data = await compressImage(f);       // 压缩（浏览器端），顺带拿到 base64
+      renderChatThumbs();
+      // 存到本机换 id：这样图片能跨刷新保留、也避免把大图塞进 /ask 请求体。
+      // 上传失败不阻塞提问 —— doSend 会用 base64 兜底（见 images: im.id||im.data）。
+      const r = await fetch("/upload",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({dataUrl:it.data, name:it.name}),
+        signal:AbortSignal.timeout(60000)
+      });
+      const j = await r.json().catch(()=>({}));
+      if(r.ok && j.id){ it.id = j.id; it.url = j.url; it.up = "ok"; }
+      else it.up = "fail";
+    }catch(e){ it.up = "fail"; }
+    renderChatThumbs();
+  }
+  refreshSendBtn();   // 有图就该能发（别等 300ms 轮询）
+}
+
+function renderChatThumbs(){
+  const box = $("chatThumbs"); if(!box) return;
+  box.innerHTML = "";
+  _chatImgs.forEach((it,i)=>{
+    const d = document.createElement("div"); d.className = "thumb";
+    const src = it.data || it.url || "";
+    d.innerHTML = (src ? `<img src="${esc(src)}" alt="${esc(it.name)}">` : "")
+      + `<button type="button" class="rm" title="移除这张">✕</button>`
+      + (it.up === "doing" ? `<span class="up">上传中…</span>`
+        : it.up === "fail" ? `<span class="up">离线待发</span>` : "");
+    d.querySelector(".rm").addEventListener("click", ()=>{
+      _chatImgs.splice(i,1); renderChatThumbs();
+    });
+    box.appendChild(d);
+  });
+  // 删光图片后若输入框也空着，发送键要重新变灰
+  if(typeof refreshSendBtn === "function") refreshSendBtn();
+}
+
+/* 把剪贴板里的图片抠出来。⚠️ 只在真的含图片时才算「图片粘贴」，
+   纯文本粘贴必须放行，否则用户就贴不了文字了。 */
+function imagesFromClipboard(e){
+  const dt = e.clipboardData || window.clipboardData;
+  if(!dt) return [];
+  const out = [];
+  // ① 标准路径：items 里带 kind=file
+  for(const it of (dt.items||[])){
+    if(it.kind === "file" && it.type && it.type.startsWith("image/")){
+      const f = it.getAsFile(); if(f) out.push(f);
+    }
+  }
+  // ② 兜底：某些浏览器/输入法只给 files
+  if(!out.length){
+    for(const f of (dt.files||[])){
+      if(f.type && f.type.startsWith("image/")) out.push(f);
+    }
+  }
+  return out;
+}
+
+function bindAttachInput(){
+  const btn = $("attachBtn"), file = $("attachFile");
+  // ① 按钮 → 选文件
+  if(btn && file){
+    btn.addEventListener("click", ()=> file.click());
+    file.addEventListener("change", ()=>{
+      addAttachFiles(file.files);
+      file.value = "";          // ⚠️ 必须清空：否则连续选同一张图不触发 change
+    });
+  }
+  if(input){
+    // ② 粘贴（图片的主路径；txt 不会通过粘贴进来）
+    input.addEventListener("paste", (e)=>{
+      const imgs = imagesFromClipboard(e);
+      if(imgs.length){
+        // ⚠️ 剪贴板里**同时有文字和图片**时（从 Word/网页复制一段带图的文字），
+        //    不能一律 preventDefault —— 那会把文字吞掉，用户只觉得"粘贴没反应"。
+        //    只在纯图时才拦默认行为。
+        const hasText = ((e.clipboardData && e.clipboardData.getData("text/plain")) || "").trim().length > 0;
+        if(!hasText) e.preventDefault();
+        addChatImages(imgs);
+      }
+    });
+    // ③ 拖拽（图片 + txt 都收；其它类型给明确提示）
+    ["dragover","dragenter"].forEach(ev=>{
+      input.addEventListener(ev, (e)=>{
+        if(e.dataTransfer && Array.from(e.dataTransfer.types||[]).includes("Files")){
+          e.preventDefault();   // 不拦会触发浏览器默认「打开图片」
+          input.classList.add("dragging");
+          const b=$("attachBtn"); if(b) b.classList.add("dragging");
+        }
+      });
+    });
+    ["dragleave","dragend"].forEach(ev=>{
+      input.addEventListener(ev, ()=>{
+        input.classList.remove("dragging");
+        const b=$("attachBtn"); if(b) b.classList.remove("dragging");
+      });
+    });
+    input.addEventListener("drop", (e)=>{
+      input.classList.remove("dragging");
+      const b=$("attachBtn"); if(b) b.classList.remove("dragging");
+      const fs = e.dataTransfer && Array.from(e.dataTransfer.files||[]);
+      if(fs && fs.length){
+        e.preventDefault();
+        addAttachFiles(fs);     // 内部会过滤类型，zip 等会被拒收并提示
+      }
+    });
+  }
+}
+/* ==================== 主对话图片输入 结束 ==================== */
+
+/* 首屏空态（2026-10-28 重构）：一个报障主按钮 + 一段能力说明 + 示例 chip。
+   背景：原来的「报障 / 其他」两张卡，回访用户（有历史）根本看不到入口；
+   且「其他」实际没什么用（直接打字就是 free 模式）。所以：
+     · 能力说明替代「其他」卡 —— 告诉用户「到底能做什么」；
+     · 示例 chip 点一下填进输入框（不直接发），既是说明也是示范；
+     · 报障做成唯一主 CTA。 */
+function renderEntry(){
+  const wrap=document.createElement("div");
+  wrap.innerHTML=`
+  <div class="entry" id="entry">
+    <div class="entry-line"><b>💬 我能帮你做什么？</b>查订单 / 单号、查会员手机号、问后台配置路径、退货限额与规则；也能直接把报错截图或日志丢进来，我帮你定位。</div>
+    <div class="entry-caps">
+      <h4>常见故障都能排</h4>
+      <p>收银台支付 · 小票打印 · 退货退款 · 离线退 / 补登 · 预售定金 · 码牌与设备 · 账号登录 · 后台配置</p>
+    </div>
+    <button type="button" class="entry-cta" id="optReport">📝 报障，开始排查</button>
+    <div class="entry-chips">
+      <button type="button" class="chip" data-fill="帮我查一下这个订单：">查订单</button>
+      <button type="button" class="chip" data-fill="帮我查一下这个会员的手机号：">查会员手机号</button>
+      <button type="button" class="chip" data-fill="退货金额上限是多少？">退货限额</button>
+      <button type="button" class="chip" data-fill="后台这个配置在哪改？">配置路径</button>
+    </div>
+  </div>`;
+  feed.appendChild(wrap);
+
+  $("optReport").addEventListener("click", ()=>{
+    _entryMode="report";
+    renderThread();      // 清空 feed 并渲染报障卡
+    input.focus();
+  });
+  // 示例 chip：只填进输入框、不直接发送，用户可补全后再发
+  wrap.querySelectorAll(".chip[data-fill]").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      input.value = b.dataset.fill;
+      autoGrow();
+      input.focus();
+      try{ input.setSelectionRange(input.value.length, input.value.length); }catch(e){}
+      refreshSendBtn();
+    });
+  });
+}
+
+/* 清掉首屏区（入口 / 报障卡）—— 首条消息发出后不应再留在对话顶部。
+   ⚠️ 2026-10-28：renderMsg 是**纯追加**，doSend 不会重排整个 feed，
+     所以必须在这里显式移除，否则入口卡会一直挂在最上面（主人反馈的正是这个）。 */
+function _clearWelcomeZone(){
+  ["entry","icard"].forEach(id=>{
+    const el=$(id); if(!el) return;
+    const top = (el.parentElement===feed) ? el : el.parentElement;
+    (top||el).remove();
+  });
+}
+
+function renderWelcome(){
+  const wrap=document.createElement("div");
+  wrap.innerHTML=`
+  <div class="icard" id="icard">
+    <div class="icard-hd">📝 报障信息卡 <span class="badge">一次填全，定位更快</span><button type="button" class="icard-close" id="icardClose" title="关闭，回到首屏" aria-label="关闭报障卡">✕</button></div>
+    <div class="icard-sub">带 <span style="color:#ef4444;font-weight:700">*</span> 的为必填，其余不确定的留空即可，助手会追问。</div>
+
+    <div class="icard-sec">
+      <label class="f-label">① 涉及功能 <span class="req">*</span><em>可多选</em></label>
+      <div class="chips" id="modChips"></div>
+    </div>
+
+    <div class="icard-sec">
+      <label class="f-label">② 终端类型 <span class="req">*</span><em>决定查哪条产品线</em></label>
+      <div class="chips" id="typeChips"></div>
+    </div>
+
+    <div class="icard-grid">
+      <div class="fld" id="fldVer">
+        <label class="f-label">③ POS 版本号 <span class="req" id="verReq">*</span><em id="verNote" hidden>后台无需填写</em></label>
+        <input id="fVer" placeholder="如 6.2.1（更新后才出现请注明）">
+      </div>
+      <div class="fld"><label class="f-label">④ 店铺号 / 项目 / 设备SN</label><input id="fShop" placeholder="如 BJLD310N04 / 深圳示例门店天地"></div>
+      <div class="fld"><label class="f-label">⑤ POS 单号</label><input id="fOrder" placeholder="涉及交易时填，便于查单"></div>
+      <div class="fld" id="fldTime">
+        <label class="f-label">⑥ 发生时间 <span class="req">*</span></label>
+        <input type="datetime-local" id="fTime">
+      </div>
+      <div class="fld full" id="fldDesc">
+        <label class="f-label">⑦ 故障描述 <span class="req">*</span><em>谁 · 在哪个页面 · 做了什么 · 出现什么结果（带数字最有用）</em></label>
+        <textarea id="fDesc" rows="3" placeholder="连着写一条即可；有报错弹窗直接传截图最省事"></textarea>
+        <div class="imgrow">
+          <button type="button" class="img-add" id="imgAdd">📷 添加截图</button>
+          <input type="file" id="fImgs" accept="image/*" multiple>
+          <span class="img-hint" id="imgHint">报错弹窗 / 界面截图可直接上传，最多 ${MAX_IMGS} 张，自动压缩</span>
+        </div>
+        <div class="thumbs" id="thumbs"></div>
+        <!-- 日志入口刻意挨着截图放：两者都是「附件」，用户一次报障就该在这儿一次交齐。
+             大日志不拒收，靠「⑥ 发生时间」前后 1 小时收窄（见 ingestLogFile）。 -->
+        <div class="imgrow">
+          <button type="button" class="img-add" id="logAddCard">📎 附加排查日志</button>
+          <span class="img-hint" id="logAddHint">可选：设备日志按「⑥ 发生时间」前后 1 小时自动截取，不用手动剪</span>
+        </div>
+        <div class="attach-list" id="logSlotCard"></div>
+      </div>
+    </div>
+
+    <div class="icard-ft">
+      <span class="icard-count" id="icCount">线索 <b>0</b>/8 · 建议至少填 4 项</span>
+      <button class="icard-send" id="icSend" disabled>生成并发送 ➤</button>
+    </div>
+  </div>`;
+  feed.appendChild(wrap);
+
+  // ① 涉及功能：多选
+  const mc=$("modChips");
+  CARD_MODS.forEach(m=>{
+    const b=document.createElement("button");
+    b.type="button"; b.className="chip"; b.textContent=m;
+    b.addEventListener("click",()=>{ b.classList.toggle("on"); cardRefresh(); });
+    mc.appendChild(b);
+  });
+  // ② 终端类型：单选（再点一次取消）
+  const tc=$("typeChips");
+  CARD_TYPES.forEach(t=>{
+    const b=document.createElement("button");
+    b.type="button"; b.className="chip"; b.textContent=t;
+    b.addEventListener("click",()=>{
+      const was=b.classList.contains("on");
+      tc.querySelectorAll(".chip").forEach(x=>x.classList.remove("on"));
+      if(!was) b.classList.add("on");
+      clearMiss(); cardRefresh();
+    });
+    tc.appendChild(b);
+  });
+
+  const pickType=()=>{ const el=tc.querySelector(".chip.on"); return el?el.textContent.trim():""; };
+  const clearMiss=()=>["fldVer","fldTime","fldDesc"].forEach(id=>{ const e=$(id); if(e) e.classList.remove("miss"); });
+
+  function cardRefresh(){
+    if(!document.getElementById("icard")) return;   // 卡片已被移除（如已发消息）
+    const modN=document.querySelectorAll("#modChips .chip.on").length;
+    const type=pickType();
+    const verNeed = !!type && type!=="POS后台";          // POS 后台不填版本号
+    $("verReq").hidden  = !verNeed;
+    $("verNote").hidden = !(type==="POS后台");
+    $("fVer").placeholder = (type==="POS后台") ? "POS 后台无需填写版本号" : "如 6.2.1（更新后才出现请注明）";
+    let n=0;
+    if(modN) n++;
+    if(type) n++;
+    if($("fVer").value.trim()) n++;
+    if($("fShop").value.trim()) n++;
+    if($("fOrder").value.trim()) n++;
+    if($("fTime").value) n++;
+    if($("fDesc").value.trim()) n++;
+    if(_cardImgs.length) n++;
+    // 把「还缺哪几项」直接写出来：按钮置灰时用户看不出缺什么，等于哑巴
+    const lack=[];
+    if(!modN) lack.push("① 功能");
+    if(!type) lack.push("② 终端类型");
+    if(verNeed && !$("fVer").value.trim()) lack.push("③ 版本号");
+    if(!$("fTime").value) lack.push("⑥ 发生时间");
+    if(!$("fDesc").value.trim()) lack.push("⑦ 故障描述");
+    $("icCount").innerHTML = `线索 <b>${n}</b>/8 · ` + (lack.length
+      ? `还缺 <b>${lack.length}</b> 项：${lack.join("、")}` : `已可发送`);
+    // 按钮刻意不置灰：灰按钮不会解释自己为什么灰。缺哪几项写在计数里，
+    // 点下去还会弹提示并把镜头拉到那个字段（见 checkCard）。
+    $("icSend").disabled = false;
+  }
+  /* 送审前的必填校验：逐项给出具体提示（按钮置灰时也能说清缺什么） */
+  function checkCard(){
+    const type=pickType();
+    if(!document.querySelectorAll("#modChips .chip.on").length)
+      return {el:null, msg:"请先选「① 涉及功能」（可多选）"};
+    if(!type) return {el:null, msg:"请先选「② 终端类型」（大POS / 小POS / POS后台）"};
+    if(type!=="POS后台" && !$("fVer").value.trim())
+      return {el:$("fldVer"), msg:"「③ POS 版本号」必填（只有 POS 后台可以不填）"};
+    if(!$("fTime").value) return {el:$("fldTime"), msg:"请填写「⑥ 发生时间」（大致时间即可，用于截取附加日志）"};
+    if(!$("fDesc").value.trim()) return {el:$("fldDesc"), msg:"请填写「⑦ 故障描述」"};
+    return null;
+  }
+
+  wrap.querySelectorAll("input, textarea").forEach(el=>{
+    el.addEventListener("input", ()=>{ clearMiss(); cardRefresh(); });
+    // ⚠️ 卡里的「⑥ 发生时间」必须边填边同步成全页唯一时间源（_reportTime）。
+    //    以前只在点「生成并发送」时才同步 → 用户先在卡里填了时间、再去附加日志，
+    //    日志入口读到的 _reportTime 还是空的，于是又要求他「再填一次发生时间」
+    //    （2026-09-16 主人反馈）。顺带把「已暂存等待时间的日志」接着处理掉，不用重选文件。
+    if(el.id==="fTime"){
+      // 时间定了就接着干活：① 有「已收下等时间」的文件 → 收下它；
+      // ② 已经有日志 → 按新时间窗重截（时间填错改一下，日志得跟着重来）
+      const reslice=()=>{
+        if(_pendingLogFile){ const f=_pendingLogFile; _pendingLogFile=null; ingestLogFile(f); }
+        else if(_logAttach && _logAttach.file) ingestLogFile(_logAttach.file, _logAttach._parts);
+      };
+      const sync=(heavy)=>{
+        _timeEditing=false;
+        setReportTime($("fTime").value);
+        hideErr();
+        // ⚠️ datetime-local 在挑选过程中会连续触发 input，直接跟着读文件会把同一份大日志读十几遍；
+        //    input 只做 500ms 防抖兜底（个别路径只给 input 不给 change），change 是定稿、立刻执行。
+        clearTimeout(_logSyncT);
+        if(heavy) reslice(); else _logSyncT = setTimeout(reslice, 500);
+      };
+      el.addEventListener("input", ()=>sync(false));
+      el.addEventListener("change", ()=>sync(true));
+    }
+  });
+  // 刷新页面后卡是空的，但时间还留在 localStorage 里 —— 回填，免得用户被要求重填一次
+  if(_reportTime) $("fTime").value = _reportTime;
+  // 把刷新实现挂到全局：卡外的 addCardImages / renderThumbs 靠它更新计数（见顶部 refreshCard）
+  window._cardRefresh = cardRefresh;
+  $("imgAdd").addEventListener("click", ()=>$("fImgs").click());
+  // 日志入口就挨着截图，两者都是附件；缺时间时由 ingestLogFile 兜底提示补填
+  $("logAddCard").addEventListener("click", ()=>$("logFile").click());
+  // 卡片右上角的关闭按钮（2026-09-24 主人定）：放弃本次报障 → 回到首屏默认状态。
+  // 只在「已经填过东西」时才确认一次，避免手滑误关把填好的线索清掉。
+  $("icardClose").addEventListener("click", async ()=>{
+    const dirty = ($("fDesc") && $("fDesc").value.trim()) || ($("fVer") && $("fVer").value.trim())
+               || _cardImgs.length || !!_logAttach || !!$("fTime").value;
+    if(dirty && !(await confirmBox("关闭报障卡？已填写的内容会丢失。", "关闭", "取消"))) return;
+    _entryMode="";                 // 回到首屏默认状态（报障主按钮 + 能力说明）
+    _cardImgs=[]; window._pendingImgs=null;
+    _logBusy=false; clearLogAttach();
+    _timeEditing=false; setReportTime("");
+    renderThread(); input.focus();
+  });
+  $("fImgs").addEventListener("change", async ev=>{
+    const files=[...ev.target.files]; ev.target.value="";
+    await addCardImages(files);
+  });
+
+  $("icSend").addEventListener("click", ()=>{
+    const bad=checkCard();
+    if(bad){
+      if(bad.el) bad.el.classList.add("miss");
+      showToast(bad.msg, "bad");
+      if(bad.el) bad.el.scrollIntoView({block:"center", behavior:"smooth"});
+      return;
+    }
+    window._pendingImgs = _cardImgs.slice();   // 交给 doSend 随这条消息一起发出
+    _cardImgs = [];
+    setReportTime($("fTime").value);           // 发生时间 → 全页唯一时间来源
+    input.value = composeCard();
+    doSend("report");        // 走报障口径：回答保持三段式（见 llm.py 的 mode 分支）
+  });
+  cardRefresh();
+  renderThumbs();
+  renderLogAttach();
+  scrollBottom();
+}
+/* 把信息卡内容拼成一条结构化消息 */
+function composeCard(){
+  const mods=[...document.querySelectorAll("#modChips .chip.on")].map(c=>c.textContent.trim());
+  const type=(document.querySelector("#typeChips .chip.on")||{}).textContent||"";
+  const v=id=>{ const e=$(id); return ((e&&e.value)||"").trim(); };
+  const L=[];
+  const add=(k,val)=>{ if(val) L.push(`▍${k}：${val}`); };
+  add("涉及功能", mods.join("、"));
+  add("终端类型", type);
+  if(type!=="POS后台") add("POS版本", v("fVer"));
+  add("店铺/项目/设备", v("fShop"));
+  add("POS单号", v("fOrder"));
+  add("发生时间", fmtDT(v("fTime")));
+  add("故障描述", v("fDesc"));
+  if((window._pendingImgs||[]).length) add("附图", `${window._pendingImgs.length} 张（见本条消息的截图）`);
+  return "【POS 报障】\n" + L.join("\n");
+}
+function msgNode(m, bodyHtml){
+  const wrap=document.createElement("div");
+  wrap.className = "msg " + (m.role==="user"?"user":"ai") + (m.welcome?" welcome":"");
+  const av = m.role==="user" ? "👤" : "🛠";
+  let srcHtml = "";
+  if(m.role==="assistant" && m.content){
+    // 只报「已查看文件 N 处」：不列具体文件/行号，也不展示参考来源（不对外暴露检索细节）
+    const files = new Set((m.code||[]).map(c=>c.file));
+    if(files.size) srcHtml = `<span class="src-line">🔍 已查看文件 ${files.size} 处</span>`;
+  }
+  // 勾选框：勾中即纳入「复制给人工」（下标取自 thread，重建后状态不丢）
+  const idx = thread.indexOf(m);
+  const pickHtml = idx>=0
+    ? `<input type="checkbox" class="pick" data-idx="${idx}"${picked.has(idx)?" checked":""} title="勾选后可一起复制给人工">`
+    : "";
+  // 结论按钮：每条 AI 回答都带，用户点一下就把「这答案管用吗」沉淀成案例信号
+  let vHtml = "";
+  if(m.role==="assistant" && m.cid){
+    const v = m.verdict || "";
+    vHtml = `<div class="verdict" data-vrow="${esc(m.cid)}">`
+      + `<button type="button" class="vbtn${v==="solved"?" on-ok":""}" data-cid="${esc(m.cid)}" data-v="solved">👍 已解决</button>`
+      + `<button type="button" class="vbtn${v==="unsolved"?" on-bad":""}" data-cid="${esc(m.cid)}" data-v="unsolved">👎 未解决</button>`
+      + `<span class="vnote${v?" done":""}" data-vnote="${esc(m.cid)}">${v ? verdictNote(v) : "这个答案管用吗？点一下帮我们筛选案例"}</span>`
+      + `</div>`;
+  }
+  // 回答简图：后端已把模型写的 <diagram> 块渲染成 SVG 并落盘，这里只放 <img>（跨刷新仍在）。
+  // ⚠️ diagHtml 必须在这里显式定义。2026-09-16 的事故：下面模板里引用了 diagHtml，但全文件
+  //    没有这一句声明 → 每条消息渲染都抛 ReferenceError → doSend 在 busy=true 之后崩掉、
+  //    finally 之前中断 → busy 永久为 true、发送键永久置灰、输入框内容发不出去。
+  let diagHtml = "";
+  const dg = m.diagram;
+  if(m.role==="assistant" && dg && (dg.url || dg.svg)){
+    const inner = dg.url
+      ? `<img src="${esc(dg.url)}" alt="${esc(dg.title||"排障示意图")}" loading="lazy"`
+        + ` onerror="var w=this.closest('.diagwrap'); if(w) w.style.display='none'">`
+      : dg.svg;   // 落盘失败时的兜底：内联后端给的 SVG 内容
+    diagHtml = `<div class="diagwrap">${inner}</div>`;
+  }
+  // 报障截图：优先用服务端地址（跨刷新仍在），本地 base64 兜底
+  let imgHtml = "";
+  const imgs = (m.imgs||[]).map(im=>im && (im.url||im.data)).filter(Boolean);
+  if(imgs.length){
+    imgHtml = `<div class="msgimgs">` + imgs.map(src=>
+      `<a href="${esc(src)}" target="_blank" rel="noopener" title="点击查看原图">`
+      + `<img src="${esc(src)}" alt="报障截图" loading="lazy"></a>`).join("") + `</div>`;
+  }
+  wrap.innerHTML = `
+    ${pickHtml}
+    <div class="avatar">${av}</div>
+    <div class="msg-body" style="min-width:0">
+      <div class="bubble">${diagHtml}${bodyHtml}</div>
+      ${imgHtml}
+      ${srcHtml}
+      ${vHtml}
+      <div class="meta">${m.time||""}</div>
+    </div>`;
+  return wrap;
+}
+/* ⚠️ 2026-10-28：这里原先是 `(append?feed:feed)` —— 三元两边都是 feed，等于永远追加，
+   看着像"带 append 开关"，实际是个空操作，害得调用方以为传 false 会清屏。
+   现在改成**明确的纯追加**（所以要清屏请显式用 _clearWelcomeZone / renderThread），
+   去掉这个假参数，避免以后又有人被它骗。 */
+function renderMsg(m){
+  const node = msgNode(m, renderMd(m.content||""));
+  feed.appendChild(node);
+  updatePickBar();
+  // ⚠️ 必须调：doSend 是**增量追加**消息的，不经过 renderThread，
+  //    漏了这句「🗑 清空对话」就永远停在置灰态（2026-10-23 修的 bug）。
+  updateClearBtn();
+  scrollBottom();
+}
+function typingNode(){
+  const wrap=document.createElement("div");
+  wrap.className="msg ai"; wrap.id="typingMsg";
+  // ⚠️ 对外文案不许出现「源码」—— 那是内部叫法，一线看不懂也不该看到（2026-09-18 主人指出）
+  // ⚠️ 文案放在 <span id="queueTxt"> 里：排队时会把它替换成「前面还有几位」（见 startQueuePoll）
+  wrap.innerHTML=`<div class="avatar">🛠</div><div class="msg-body" style="min-width:0"><div class="bubble"><span class="typing"><i></i><i></i><i></i></span> <span id="queueTxt">正在分析问题…</span></div></div>`;
+  feed.appendChild(wrap); scrollBottom();
+  startWaitHints();
+  return wrap;
+}
+
+/* ========== 等待话术：按等待时长给出「进展感」（2026-10-09 主人提）==========
+   背景：一次问答的端到端耗时实测是两个量级 ——
+     · 简单问题（查单号 / 问菜单在哪）**中位 4 秒**，用户几乎看不到这句话；
+     · 排障类问题（带日志、带错误码）**中位 53 秒、p90 67 秒、最长 81 秒**。
+   而气泡原先一直停在「正在分析，结合知识库定位中…」—— 用户会以为卡死、反复刷新
+   （刷新反而更糟：**丢掉正在跑的结果 + 重新排队**）。
+   做法：**纯前端计时**，按秒数把"我们确实在干活"分阶段说出来，并给出预期时长。
+   ⚠️ 不做假进度条（百分比是编的，一旦卡在 90% 更让人焦虑），只说事实。
+   ⚠️ **绝不引导用户刷新**（2026-10-09 修）：旧版 75 秒那句写的是"可刷新重试"，
+      但刷新会丢掉正在生成的结果、还要重新排队 —— 是最糟的操作。
+      60 秒后改为**明确劝阻刷新**，因为那一刻正是用户最想刷新的时刻。
+   ⚠️ 阶段切分按上面的实测分布定，别凭感觉改：
+      0/6/18 秒覆盖 fast 档与 deep 的起步；38/65 秒覆盖 deep 的中位与 p90；
+      105/138 秒是"超出历史最长耗时"之后的兜底（历史最长 81 秒）。
+   ⚠️ 与排队提示**共用** <span id="queueTxt">：排队时一律让位（`_queued` 标志），
+      否则会把「前面还有 N 位」冲掉 —— 那是那一刻用户最需要的信息。
+   ⚠️ 文案里**不许出现「源码」**（内部叫法，2026-09-18 主人指出过）。
+   ⚠️ 后端 /ask 的超时是 150 秒（见下面的 AbortSignal.timeout），话术别说过头。 */
+const _WAIT_STAGES = [
+  [0,   "正在分析问题…"],
+  [6,   "正在检索知识库、核对相关配置与记录…"],
+  [18,  "正在逐项排查可能的原因，请稍等…"],
+  [38,  "线索比较多，正在一条条排除，请再等一会儿…"],
+  [65,  "还在处理中 —— 不用刷新页面，刷新会丢掉这次的结果"],
+  [105, "这次排查用时偏长，仍在继续（单次最长约 150 秒）…"],
+  [138, "已接近单次处理上限（约 150 秒）；若超时会自动提示，可换个问法或补充信息再试"],
+];
+let _waitTimer=null, _waitStart=0, _queued=false;
+function _waitTick(){
+  const el=$("queueTxt");
+  if(!el){ stopWaitHints(); return; }            // 气泡已被移除（回答到了/出错了）
+  if(_queued) return;                            // 排队信息优先，别冲掉
+  const sec=(Date.now()-_waitStart)/1000;
+  let txt=_WAIT_STAGES[0][1];
+  for(const st of _WAIT_STAGES){ if(sec>=st[0]) txt=st[1]; }
+  // ⚠️ 过了 20 秒才附上秒数：更早知道"确实在走"。
+  //    不更早是因为 fast 档 4 秒就出结果，秒表一闪而过反而像卡顿。
+  if(sec>=20) txt += `（已等待 ${Math.floor(sec)} 秒）`;
+  if(el.textContent!==txt) el.textContent=txt;
+  // ⚠️ 2026-10-12 主人要求：**状态栏不再跑秒表**。
+  //   原来这里每秒把状态栏改写成「AI 在线 · 已处理 N 秒」，而 checkHealth() 又会把
+  //   它改成「AI 离线（本机未开机？）」—— 两个写入方**每秒互相覆盖** ⇒ 用户看到
+  //   「AI 离线 · 已处理 49 秒」这种一闪一闪的怪文案。
+  //   现在：状态栏只由 setStatusText 的调用方维护（健康检查/排队），这里**不碰**。
+  //   「已等待 N 秒」仍留在**气泡内**（气泡不在视野时用户上滑能看到，且不会闪）。
+}
+function startWaitHints(){
+  if(_waitTimer) clearInterval(_waitTimer);      // ⚠️ 只能清定时器，**不能调 stopWaitHints()**：
+  _waitStart=Date.now();                         //    那会把状态栏重置成"AI 在线"，
+  _waitTick();                                   //    白白抹掉 checkHealth() 刚设的「知识 X 段 · 数据在线」
+  _waitTimer=setInterval(_waitTick,1000);
+}
+/* ⭐ 2026-10-12（主人定"动态超时+给时间预期"）：提交前**按任务规模估算预期耗时**。
+   口径与后端 _time_budget 对齐：fast≈10s / deep 基线≈60s / 每多一个长数字串（单号）+15s。
+   只用于**预期管理**（写进状态栏"预计约 N 秒"），不是硬超时 —— 硬超时仍是 240s。 */
+function estimateWait(text){
+  const ids = (text.match(/\d{14,}/g)||[]).length;
+  const heavy = /日志|报错|截图|为什么|排查|分析/.test(text||"");
+  let sec = heavy ? 60 : 15;                     // deep 基线 / fast 常见值
+  if(heavy) sec += Math.max(0, ids-1) * 15;      // 批量查单每个 +15s
+  return Math.min(sec, 160);
+}
+function stopWaitHints(){
+  if(_waitTimer){ clearInterval(_waitTimer); _waitTimer=null; }
+  // 收尾把状态栏交回底稿（排队流程随后也会自己设，不冲突）；正常态不显示这一行
+  if(!_queued){ setStatusText(_statusBase||"助手 在线"); _showStatus(false); }
+}
+
+/* ========== 排队提示（2026-09-25 主人提）==========
+   多人同时用时，后端会限制并发（默认 4）并让超出的请求排队。
+   不提示的话，用户看到"转圈"会以为卡死而反复刷新（反而更堵）。
+   做法：提交前生成一个随机 rid 一起发给后端，之后每 2 秒问一次「我前面还有几位」。
+   ⚠️ 查询失败一律静默 —— 排队提示是锦上添花，绝不能因为它弹错或打断提问。 */
+let _queueTimer=null;
+function newRid(){
+  try{ if(window.crypto && crypto.randomUUID) return crypto.randomUUID(); }catch(_){}
+  return Date.now().toString(36) + Math.random().toString(36).slice(2,10);
+}
+async function _queueTick(rid){
+  const el=$("queueTxt");
+  if(!el){ stopQueuePoll(); return; }
+  try{
+    const r=await fetch(`/queue-status/${encodeURIComponent(rid)}`,{signal:AbortSignal.timeout(5000)});
+    const j=await r.json().catch(()=>({}));
+    if(j && j.ahead>0){
+      // 气泡里说清"前面几位、系统在忙什么"
+      _queued=true;                                   // 让位：等待话术暂停更新（见 startWaitHints）
+      el.textContent=`排队中：前面还有 ${j.ahead} 位（正在处理 ${j.active||0}/${j.limit||3}）`;
+      // 状态栏给出**我自己的位次**（主人 2026-09-25 提：用户最想知道的是"我排第几个"）
+      setStatusText(`你排在第 ${j.ahead+1} 位`);
+      _showStatus(true);                              // 排队中 → 显示
+    }else{
+      // 轮到自己了（或已经在处理中）：状态栏回到底稿
+      _queued=false;
+      setStatusText(_statusBase);
+      _showStatus(false);                             // 没在排队 → 隐藏（正常态不占版面）
+    }
+  }catch(_){ /* 静默 */ }
+}
+function startQueuePoll(rid){
+  stopQueuePoll();
+  _queueTick(rid);
+  _queueTimer=setInterval(()=>_queueTick(rid),2000);
+}
+function stopQueuePoll(){
+  if(_queueTimer){ clearInterval(_queueTimer); _queueTimer=null; }
+  setStatusText(_statusBase);   // 复原状态栏（去掉"你排在第 N 位"）
+}
+
+/* ========== 案例信号：已解决 / 未解决 ==========
+   背景：助手目前只覆盖一部分报障，多数最终要转人工。用户点「已解决/未解决」、点「复制给人工」，
+   本身就是最真实的标注 —— 但此前这些信号只活在浏览器本地，没人看得到。现在每次点击都会回写
+   一条案例到本机（/feedback）；运维只在「案例审查」页里判断：哪些能入库、哪些要人工纠正。
+   ⚠️ 上报是「顺手做的事」：任何异常一律静默吞掉，绝不能让标记动作本身妨碍用户。 */
+const newCid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+
+function verdictNote(v){
+  if(v==="solved") return "已标记：已解决（可入库候选）";
+  if(v==="unsolved") return "已标记：未解决（已进入待处置清单）";
+  return "";
+}
+/* 找这条回答对应的问题（往前最近的一条用户消息） */
+function caseOf(m){
+  const i = thread.indexOf(m);
+  for(let k=i-1;k>=0;k--){ if(thread[k] && thread[k].role==="user") return thread[k]; }
+  return null;
+}
+/* 报障卡里填过的结构化字段（卡还在页面上时才取得到；取不到就不带，不影响上报） */
+function caseMeta(){
+  const out = {};
+  try{
+    const mods = [...document.querySelectorAll("#modChips .chip.on")].map(c=>c.textContent.trim());
+    const t = document.querySelector("#typeChips .chip.on");
+    if(mods.length) out["功能"] = mods.join("/");
+    if(t) out["终端"] = t.textContent.trim();
+    const g = id => { const el=$(id); return el ? (el.value||"").trim() : ""; };
+    if(g("fVer"))   out["版本"] = g("fVer");
+    if(g("fShop"))  out["店铺"] = g("fShop");
+    if(g("fOrder")) out["单号"] = g("fOrder");
+  }catch(_){}
+  return out;
+}
+async function reportCase(m, via){
+  if(!m || !m.cid) return;
+  const q = caseOf(m);
+  try{
+    await fetch("/feedback",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        id:m.cid, ts:m.ts||undefined,
+        question:(q && q.content || "").slice(0,6000),
+        answer:(m.content||"").slice(0,20000),
+        verdict:m.verdict||"none", via:via||"click",
+        user:m.user||"",
+        meta:caseMeta(),
+        imgs:(m.imgs||[]).map(im=>im.id).filter(Boolean)
+      }),
+      signal:AbortSignal.timeout(15000)
+    });
+  }catch(_){ /* 静默：上报失败也不能妨碍用户 */ }
+}
+function paintVerdict(m){
+  if(!m || !m.cid) return;
+  const v = m.verdict || "";
+  document.querySelectorAll(`.vbtn[data-cid="${m.cid}"]`).forEach(b=>{
+    b.classList.toggle("on-ok",  v==="solved"   && b.dataset.v==="solved");
+    b.classList.toggle("on-bad", v==="unsolved" && b.dataset.v==="unsolved");
+  });
+  const n = document.querySelector(`[data-vnote="${m.cid}"]`);
+  if(n){ n.textContent = v ? verdictNote(v) : "这个答案管用吗？点一下帮我们筛选案例";
+    n.classList.toggle("done", !!v); }
+}
+function setVerdict(cid, v){
+  const m = thread.find(x=>x && x.cid===cid);
+  if(!m) return;
+  m.verdict = (m.verdict===v) ? "" : v;      // 再点一次 = 取消标记
+  paintVerdict(m); saveThread(); reportCase(m,"click");
+  if(m.verdict==="solved")        showToast("已标记「已解决」：进入可入库候选","ok");
+  else if(m.verdict==="unsolved") showToast("已标记「未解决」：已通知运维跟进","ok");
+  else                            showToast("已取消标记");
+}
+
+/* ========== 会话持久化 ========== */
+/* ⚠️ 截图只存服务端 id/url，绝不存 base64：几张图就把 localStorage（约 5MB）撑爆，
+   而 saveThread 失败会整份清空历史，代价太大。刷新后用 /img/<id> 仍能正常显示。
+   简图同样只存 url 不存 svg。
+   `slimThread()` 抽出来是因为「存本地」和「同步到服务端」要用同一份序列化 —— 两处各写一遍必然走样。 */
+function slimThread(){
+  return thread.slice(-MAX_THREAD).map(m=>({
+    role:m.role, content:(m.content||"").slice(0,6000), time:m.time,
+    d:m.d||null,                       // 本地自然日：跨天上下文隔离用（2026-10-28）
+    sources:m.sources||[], code:m.code||[],
+    cid:m.cid||null, verdict:m.verdict||"", ts:m.ts||null,
+    user:m.user||"",
+    diagram: m.diagram ? {kind:m.diagram.kind||"", title:m.diagram.title||"", url:m.diagram.url||""} : null,
+    imgs:(m.imgs||[]).map(im=>({id:im.id||null, url:im.url||null, name:im.name||""})).filter(im=>im.id||im.url)
+  }));
+}
+function saveThread(){
+  /* ⚠️ 2026-10-12（第四~六轮审计 §3.2）：**配额满时不再一次清空全部历史**。
+     原写法：`catch(e){ localStorage.removeItem(LS_KEY); }` —— 一旦超过 5MB 配额，
+     **整份对话历史被清空**（不是丢最旧，是全丢）⇒ 用户刷新后看到一片空白。
+     ⚠️ 已有两层防护（截图只存 id 不存 base64、MAX_THREAD=100 限条数），
+        所以这是极端情况的兜底；但"全丢"的代价太大，值得改。
+     新做法：**渐进丢弃** —— 每轮从最旧的一端砍掉 5 条再试，
+     直到写入成功或只剩最后 1 条（保留最新上下文，比全空有用得多）。 */
+  const all = slimThread();
+  for(let keep = all.length; keep >= 1; keep -= 5){
+    try{
+      localStorage.setItem(LS_KEY, JSON.stringify(all.slice(-keep)));
+      if(keep < all.length) console.warn(`[localStorage] 配额不足，仅保留最近 ${keep} 条`);
+      return;
+    }catch(_){ /* 继续砍 */ }
+  }
+  // 只剩 1 条还写不进（极端）—— 才清空，至少让后续能继续用
+  try{ localStorage.removeItem(LS_KEY); }catch(_){}
+}
+
+/* ========== 会话 ID：跨设备续聊 ==========
+   场景：这台电脑答到一半，换台电脑（或转人工）要接着看 —— 凭会话 ID 把整段拉回来，
+   消息里的日志、截图引用、简图也都跟着回来。服务端只保留 7 天，过期即删。
+   ⚠️ 同步是「顺手做的事」：任何异常一律静默吞掉，绝不能影响问答主流程（同 reportCase 口径）。 */
+function saveSid(sid){
+  _sid = sid || "";
+  try{ _sid ? localStorage.setItem(LS_SID_KEY,_sid) : localStorage.removeItem(LS_SID_KEY); }catch(_){}
+  paintSid();
+}
+function shortSid(){ return _sid ? _sid.replace(/^pos-/,"").slice(0,8) : ""; }
+function paintSid(){
+  const el = $("sidBtn"); if(!el) return;
+  el.hidden = !_sid;
+  // 2026-09-27 主人定：显示为「（talkID:xxxx）」，贴在标题后方
+  el.textContent = _sid ? `（talkID:${shortSid()}）` : "";
+  el.title = _sid ? `会话 ID（talkID）：${_sid}\n点一下复制，换台电脑凭它继续本会话` : "";
+}
+async function syncSession(){
+  try{
+    const title = (thread.find(m=>m && m.role==="user") || {}).content || "";
+    if(!_sid){
+      const r = await fetch("/session/new", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({title:title.slice(0,60)}),
+        signal: AbortSignal.timeout(10000)
+      });
+      const j = await r.json().catch(()=>({}));
+      if(!j.sid) return;
+      saveSid(j.sid);
+    }
+    await fetch("/session/sync", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({sid:_sid, title:title.slice(0,60), messages:slimThread()}),
+      signal: AbortSignal.timeout(15000)
+    });
+  }catch(_){ /* 静默：同步失败不能妨碍用户 */ }
+}
+/* 从会话 ID 拉取并接管当前页面。⚠️ 会覆盖本地对话，调用前必须让用户确认。 */
+async function openSession(sid){
+  const clean = (sid||"").trim().toLowerCase();
+  if(!/^pos-[0-9a-z]{14}$/.test(clean)){
+    showToast("会话 ID 格式不对：应为 pos- 开头的 14 位字符","bad"); return false;
+  }
+  let doc;
+  try{
+    const r = await fetch(`/session/${clean}`, { signal: AbortSignal.timeout(15000) });
+    if(r.status === 404){
+      const j = await r.json().catch(()=>({}));
+      showToast(j.detail || "会话不存在或已过期（会话仅保留 7 天）","bad"); return false;
+    }
+    if(!r.ok){ showToast(`拉取失败（${r.status}）`,"bad"); return false; }
+    doc = await r.json();
+  }catch(e){ showToast("拉取失败：网络或服务异常","bad"); return false; }
+
+  thread = Array.isArray(doc.messages) ? doc.messages : [];
+  _backfillDays();   // 老会话没有 d：补日期，跨天隔离才生效（2026-10-28）
+  picked.clear();   // 2026-11-02：拉回来**不再默认全选** —— 交给 doCopy 在用户点复制时确认
+  saveSid(doc.sid || clean);
+  saveThread();
+  renderThread();
+  showToast(`已继续会话 ${shortSid()}…（共 ${thread.length} 条）`,"ok");
+  return true;
+}
+function copySid(){
+  if(!_sid) return;
+  copyText(_sid).then(ok=>{
+    showToast(ok ? `会话 ID 已复制：${_sid}` : `会话 ID：${_sid}（复制失败，请手动记下）`, ok?"ok":"bad");
+  });
+}
+/* ---------- 跨天上下文隔离（2026-10-28）----------
+   主人要求：过了当天，历史记录**继续留在本地可查看**，但**不再作为上下文**发给模型。
+   做法：每条消息打一个本地自然日 `d`；doSend 只把「今天」的消息放进 history。
+   ⚠️ 后端不用改 —— 它只认请求里的 history（/ask 不读服务端会话存档）。
+   ⚠️ 检索主 query / 日志证据都是后端从 history 里挑的，所以前端一过滤，旧问题就带不偏了。 */
+function _dayKey(ts){
+  const d = new Date(Number(ts) || Date.now());
+  const p = n => String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+/* 老数据没有 `d`：优先用自身 ts（助手消息有），否则用最新 ts 兜底 ——
+   保证部署当天不会"突然失忆"，第二天起自然不再参与。 */
+function _backfillDays(){
+  const newest = thread.reduce((mx,m)=>Math.max(mx, Number(m && m.ts)||0), 0);
+  const fallback = _dayKey(newest || Date.now());
+  thread.forEach(m=>{ if(m && !m.d) m.d = m.ts ? _dayKey(m.ts) : fallback; });
+}
+
+function loadThread(){
+  try{
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return;
+    const arr = JSON.parse(raw);
+    if(Array.isArray(arr) && arr.length){ thread = arr; _backfillDays(); }
+  }catch(_){}
+}
+
+/* ========== 勾选 & 复制给人工 ==========
+   背景：助手目前只能覆盖一部分问题，多数报障最终要转人工。人工接手时若只看到一大段
+   原始对话，仍需重新读一遍、甚至再问用户一遍。这里让用户勾选需要的对话 → 调 /summarize
+   生成「交接简报」→ 摘要 + 原始对话一起进剪贴板，人工拿到即可接手。
+   ⚠️ 复制是主功能、摘要只是增强：摘要失败也必须能复制出去，绝不允许整体失败。 */
+function updatePickBar(){
+  // 2026-09-27：这一行回到输入框上方（#pickBar），无对话时整条隐藏 —— 恢复原行为。
+  const bar=$("pickBar");
+  if(!bar) return;
+  if(!thread.length){ bar.style.display="none"; return; }
+  bar.style.display="flex";
+  const n=picked.size;
+  /* 2026-11-02：默认一条都不勾。这里的文案要把「未勾选」说破，
+     否则用户看着一个空数字不知道要自己动手（见 doCopy 里的提示）。 */
+  $("pickInfo").innerHTML = (n
+      ? `已选 <b>${n}</b>/${thread.length} 条`
+      : `未勾选（共 ${thread.length} 条）`)
+    + ` · <button type="button" class="mini-link" id="pickAllBtn">${n>=thread.length?"取消全选":"全选"}</button>`;
+  const btn=$("copyBtn");
+  /* ⚠️ 这里**不能**因为 n=0 就 disabled —— 那样用户点了没反应，
+     而我们要的正是「点一下 → 提示他勾选」。空勾选的处理交给 doCopy。 */
+  btn.disabled = copying;
+  btn.textContent = copying ? "⏳ 正在生成摘要…" : (n ? `📋 复制给人工（${n} 条）` : "📋 复制给人工");
+}
+
+/* 一条都没勾时让勾选框闪一下 —— 否则用户不知道该点哪儿（2026-11-02） */
+function flashPick(){
+  feed.querySelectorAll(".pick").forEach(el=>{
+    el.classList.add("hint");
+    setTimeout(()=>{ try{ el.classList.remove("hint"); }catch(_){} }, 2400);
+  });
+}
+
+function showToast(msg, kind){
+  const t=$("toast");
+  t.className="toast show"+(kind?" "+kind:"");
+  t.textContent=msg;
+  clearTimeout(showToast._t);
+  showToast._t=setTimeout(()=>{ t.className="toast"+(kind?" "+kind:""); }, 4500);
+}
+
+/* 居中确认框（2026-10-28）：替代原生 confirm。
+   ⚠️ 原生 confirm 在 Chrome 里是贴在窗口顶部的一条，鼠标要跑很远、样式也突兀。
+   这里用和「能做什么」同一套居中遮罩；返回 Promise<boolean>，调用方记得 await。 */
+function confirmBox(msg, okText, cancelText){
+  return new Promise(resolve=>{
+    const mask=$("cfmMask"), tx=$("cfmText");
+    tx.textContent = msg || "确定吗？";
+    $("cfmYes").textContent = okText || "确定";
+    $("cfmNo").textContent  = cancelText || "取消";
+    mask.classList.add("show");
+    const done = v=>{
+      mask.classList.remove("show");
+      document.removeEventListener("keydown", onKey);
+      resolve(v);
+    };
+    const onKey = e=>{
+      if(e.key==="Escape"){ e.preventDefault(); done(false); }
+      else if(e.key==="Enter"){ e.preventDefault(); done(true); }
+    };
+    $("cfmYes").onclick = ()=>done(true);
+    $("cfmNo").onclick  = ()=>done(false);
+    mask.onclick = e=>{ if(e.target===mask) done(false); };
+    document.addEventListener("keydown", onKey);
+    // 焦点给「确定」，键盘用户可直接回车
+    setTimeout(()=>{ try{ $("cfmYes").focus(); }catch(_){} }, 30);
+  });
+}
+
+/* 居中输入框（2026-10-28）：替代原生 prompt。
+   用于「继续会话」粘贴会话 ID —— 原生 prompt 同样贴在窗口顶部，且样式不可控。
+   返回 Promise<string|null>：点确定回输入值（已 trim），取消/点遮罩/Esc 回 null。 */
+function inputBox(title, placeholder, okText){
+  return new Promise(resolve=>{
+    const mask=$("inpMask"), field=$("inpField");
+    $("inpTitle").textContent = title || "";
+    field.value = "";
+    field.placeholder = placeholder || "";
+    $("inpYes").textContent = okText || "确定";
+    mask.classList.add("show");
+    const done = v=>{
+      mask.classList.remove("show");
+      document.removeEventListener("keydown", onKey);
+      resolve(v);
+    };
+    const onKey = e=>{
+      if(e.key==="Escape"){ e.preventDefault(); done(null); }
+      else if(e.key==="Enter"){ e.preventDefault(); done(field.value.trim()); }
+    };
+    $("inpYes").onclick = ()=>done(field.value.trim());
+    $("inpNo").onclick  = ()=>done(null);
+    mask.onclick = e=>{ if(e.target===mask) done(null); };
+    document.addEventListener("keydown", onKey);
+    setTimeout(()=>{ try{ field.focus(); }catch(_){} }, 40);
+  });
+}
+
+async function copyText(txt){
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      // ⚠️ 必须加超时：某些浏览器里 writeText 在无用户手势/权限被挂起时会一直不 settle，
+      // 不加护栏按钮会永久停在「正在生成摘要…」。超时后走下面的 execCommand 降级。
+      await Promise.race([
+        navigator.clipboard.writeText(txt),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error("clipboard timeout")), 3000))
+      ]);
+      return true;
+    }
+  }catch(_){}
+  // 降级：非安全上下文 / 剪贴板被拒时用 execCommand
+  try{
+    const ta=document.createElement("textarea");
+    ta.value=txt; ta.setAttribute("readonly","");
+    ta.style.cssText="position:fixed;top:-2000px;left:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, txt.length);
+    const ok=document.execCommand("copy");
+    ta.remove();
+    return ok;
+  }catch(_){ return false; }
+}
+
+/* 交给人工的文本：AI 交接简报 + 原始对话（原文永远保留，摘要失败也不影响） */
+function buildHandoff(summary, items){
+  const when=new Date().toLocaleString("zh-CN",{hour12:false});
+  const body=items.map(m=>{
+    const who = m.role==="user" ? "用户" : "助手";
+    const tm = m.time ? m.time+" " : "";
+    // 截图只能给链接：人工点开看原图（本机服务在线时有效）
+    const pics = (m.imgs||[]).map((im,i)=>im.url ? `  🖼 截图${i+1}：${absUrl(im.url)}` : "").filter(Boolean).join("\n");
+    return `【${tm}${who}】\n${(m.content||"").trim()}` + (pics ? "\n"+pics : "");
+  }).join("\n\n");
+  const brief = summary || "（摘要生成失败，请人工从下方原始对话接手）";
+  // 会话 ID 放最上面：人工拿它就能在自己电脑上把整段会话拉出来（含日志与截图引用）。
+  // 拉不到时服务端会如实回「不存在或已过期」，所以这里写清 7 天，免得人工以为永久有效。
+  const sidLine = _sid
+    ? `会话 ID：${_sid}\n（人工可在 ask.example.com 点「📥 继续会话」粘贴它，拉到完整会话；服务端保留 7 天）\n`
+    : "";
+  return `【POS 报障 · 转人工交接】\n${sidLine}生成时间：${when}\n\n${brief}\n\n`
+       + `———— 原始对话（${items.length} 条）————\n\n${body}\n`;
+}
+/* /img/xxx → 完整可点链接（人工多半不在这个页面上，必须给绝对地址） */
+function absUrl(u){
+  try{ return new URL(u, location.href).href; }catch(_){ return u; }
+}
+
+async function doCopy(){
+  if(copying || _copyAsk) return;
+  /* ⭐ 2026-11-02 主人要求：消息**默认不勾选**，复制时再让用户挑。
+     原来新消息/恢复历史都自动全选，一键复制会把整段无关对话全塞给人工。
+     现在一条没勾时先问一句：要么「全选并复制」（保留一键快路径），
+     要么「我自己勾」→ 勾选框闪一下并给提示。 */
+  if(!picked.size){
+    if(!thread.length){ showToast("还没有对话可以复制","bad"); return; }
+    _copyAsk = true;
+    let all = false;
+    try{
+      all = await confirmBox(
+        `还没有勾选任何消息。要复制全部 ${thread.length} 条吗？`,
+        "全选并复制", "我自己勾");
+    }finally{ _copyAsk = false; }
+    if(!all){ flashPick(); showToast("点消息左上角的小方框，勾选要复制的内容","ok"); return; }
+    thread.forEach((m,i)=>picked.add(i));
+    renderThread();
+  }
+  const items=[...picked].sort((a,b)=>a-b).map(i=>thread[i]).filter(m=>m&&m.content);
+  if(!items.length){ showToast("请先勾选要复制的对话","bad"); return; }
+  copying=true; updatePickBar();
+  let summary="";
+  try{
+    const r=await fetch("/summarize",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({messages:items.map(m=>({role:m.role, content:m.content}))}),
+      signal:AbortSignal.timeout(100000)
+    });
+    if(r.ok) summary=((await r.json()).summary||"").trim();
+  }catch(_){}
+  const ok=await copyText(buildHandoff(summary, items));
+  copying=false; updatePickBar();
+  if(!ok){ showToast("复制失败：浏览器未放行剪贴板，请手动选中对话复制","bad"); return; }
+  // 走到「转人工」是一个真实信号，回写案例供审查 —— 但**不再自动判未解决**。
+  // ⚠️ 2026-10-28 主人要求：复制给人工常常只是「转给同事看」，不等于答案没解决。
+  //   原先这里会自动设 verdict=unsolved 并推未解决通知，于是「先复制、后标已解决」时
+  //   会出现「通知说未解决 / 页面说已解决」的自相矛盾
+  //   （实证 pos-231y820f3fvtd8：10:24 三条记录 none → unsolved(copy) → solved(click)）。
+  //   标记权交回用户自己：点「已解决 / 未解决」才算数。
+  markCopied(items);
+  showToast(summary
+    ? `已复制：AI 交接摘要 + ${items.length} 条原文，可直接粘贴给人工`
+    : `已复制 ${items.length} 条原文（摘要未能生成，不影响交接）`, "ok");
+}
+
+/* 勾选转人工 → 只回写「这次转人工了」这个信号，**不改 verdict**（2026-10-28 起）。
+   ⚠️ 一定要沿用当前 verdict 上报：若用户先点了「未解决」再复制，这里不能把它洗成 none。
+   一条 assistant 都没勾到就退回到最近一条回答。 */
+function markCopied(items){
+  let targets = items.filter(m=>m && m.role==="assistant" && m.cid);
+  if(!targets.length){
+    const last=[...thread].reverse().find(m=>m && m.role==="assistant" && m.cid);
+    if(last) targets=[last];
+  }
+  targets.forEach(m=>reportCase(m,"copy"));
+  return targets.length;
+}
+
+/* 勾选事件用委托：消息节点是动态重建的 */
+feed.addEventListener("change", e=>{
+  const cb=e.target && e.target.closest && e.target.closest(".pick");
+  if(!cb) return;
+  const i=+cb.dataset.idx;
+  if(cb.checked) picked.add(i); else picked.delete(i);
+  updatePickBar();
+});
+$("pickInfo").addEventListener("click", e=>{
+  if(!e.target.closest("#pickAllBtn")) return;
+  if(picked.size>=thread.length) picked.clear();
+  else thread.forEach((m,i)=>picked.add(i));
+  renderThread();
+});
+/* 结论按钮用委托：消息节点是动态重建的 */
+feed.addEventListener("click", e=>{
+  const b = e.target && e.target.closest && e.target.closest(".vbtn");
+  if(!b) return;
+  setVerdict(b.dataset.cid, b.dataset.v);
+});
+$("copyBtn").addEventListener("click", doCopy);
+$("sidBtn").addEventListener("click", copySid);
+
+/* ========== 管理员面板（2026-09-25 主人提）==========
+   入口显示与否完全由后端决定：页面加载时探测 POST /admin/status，
+   非管理员拿到 403 → 按钮保持隐藏。
+   ⚠️ 前端隐藏只是**体验**；真正的权限在后端 `_check_admin`（校验网关注入的 X-Auth-User），
+      前端怎么改都绕不过去 —— 这条必须保持，别图省事只在前端判断。 */
+let _admin=null;
+async function loadAdmin(){
+  try{
+    const r=await fetch("/admin/status",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({}), signal:AbortSignal.timeout(8000)
+    });
+    if(!r.ok) return null;                       // 403 = 不是管理员
+    const j=await r.json().catch(()=>({}));
+    return (j && j.ok) ? j : null;
+  }catch(_){ return null; }
+}
+async function initAdmin(){
+  _admin=await loadAdmin();
+  /* ⚠️ 2026-11-02：原来只探一次。后端重启（部署）/隧道抖动那一下失败，按钮就**永远**
+     不出现，用户只能自己刷新 —— 主人就遇到过「管理按钮没了」。
+     现在最多再重试 3 次；还没拿到就挂个钩子：页面重新可见时再试一次。 */
+  if(!_admin){
+    for(let i=0;i<3 && !_admin;i++){
+      await new Promise(r=>setTimeout(r, 2500));
+      _admin=await loadAdmin();
+    }
+    if(!_admin && !initAdmin._hooked){
+      initAdmin._hooked=true;
+      document.addEventListener("visibilitychange", async ()=>{
+        if(document.visibilityState!=="visible" || _admin) return;
+        _admin=await loadAdmin();
+        const bx=$("adminBtn");
+        if(_admin && bx) bx.style.display="";
+        if(_admin) checkHealth();
+      });
+    }
+  }
+  const b=$("adminBtn");
+  if(b && _admin) b.style.display="";
+  if(b) b.addEventListener("click", openAdmin);
+  // ⭐ 2026-10-28：管理员身份是**异步**拿到的，首个 checkHealth 可能先跑完（那时 _admin 仍是 null，
+  //    副标题里就不会有「内网在线」）。拿到身份后补刷一次，管理员才看得到内网状态。
+  if(_admin) checkHealth();
+}
+
+/* ===== 使用统计（2026-10-12 主人要求：最近 15 天用量与解决情况）=====
+   ⚠️ 独立接口 /admin/usage（不与 /admin/status 混，避免每次开关面板都拉全量用户表）。
+   口径：事件处理=问答条数；多少人用=去重身份数；no_answer（服务离线）不计入解决率。 */
+let _usageCache=null, _usageDays=15;
+async function loadUsage(days){
+  try{
+    const r=await fetch("/admin/usage",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({days:days||_usageDays}), signal:AbortSignal.timeout(8000)
+    });
+    if(!r.ok) return null;
+    const j=await r.json().catch(()=>({}));
+    return (j && j.ok) ? j : null;
+  }catch(_){ return null; }
+}
+function usageHtml(u){
+  if(!u) return '<div style="color:#94a3b8;font-size:12px">加载中…</div>';
+  const s=u.summary||{}, daily=u.daily||[];
+  const rate = s.effective ? Math.round((s.solved/s.effective)*100) : 0;
+  // 迷你柱状图：按每日总量归一
+  const maxv = Math.max(1, ...daily.map(d=>d.total||0));
+  const bars = daily.map(d=>{
+    const h = Math.round(((d.total||0)/maxv)*34);
+    const md = (d.date||"").slice(5);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:0"
+                 title="${esc(d.date)}：共 ${d.total||0} 条（已解决 ${d.solved||0} / 未解决 ${d.unsolved||0} / 未标 ${d.none||0} / 离线 ${d.no_answer||0}）">
+      <div style="height:34px;display:flex;align-items:flex-end">
+        <div style="width:60%;min-width:4px;height:${h||1}px;background:${(d.total||0)?'#3b82f6':'#e2e8f0'};border-radius:3px 3px 0 0"></div>
+      </div>
+      <div style="font-size:9.5px;color:#94a3b8;transform:scale(.9);white-space:nowrap">${esc(md)}</div>
+    </div>`;
+  }).join("");
+  const box=(k,v,color)=>`<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 10px">
+      <div style="color:#64748b;font-size:11.5px">${k}</div>
+      <div style="margin-top:2px;font-size:17px;font-weight:600;color:${color||'#0f172a'}">${v}</div></div>`;
+  /* 2026-11-06 主人要求：移除「按用户（前 8）」用量列表 —— 后端 /admin/usage 仍返回 users，
+     这里不再渲染。以后要恢复，从 git 历史取这段即可。 */
+  return `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px">
+      ${box("使用人数", s.users||0)}
+      ${box("事件处理", s.sessions||0)}
+      ${box("已解决", s.solved||0, "#15803d")}
+      ${box("未解决", s.unsolved||0, "#b91c1c")}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px">
+      ${box("未标记", s.none||0, "#64748b")}
+      ${box("解决率", rate+"%", rate>=60?"#15803d":"#b45309")}
+      ${box("服务未答", s.no_answer||0, "#94a3b8")}
+      ${box("有效问答", s.effective||0)}
+    </div>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 11px;margin-bottom:10px">
+      <div style="color:#64748b;font-size:12px;margin-bottom:6px">每日用量（${esc(u.start||"")} ~ ${esc(u.end||"")}，共 ${u.days||15} 天）</div>
+      <div style="display:flex;align-items:flex-end;gap:2px">${bars}</div>
+    </div>
+    ${s.unattributed?`<div style="color:#94a3b8;font-size:11.5px;margin-bottom:8px">
+      ⓘ 另有 ${s.unattributed} 条历史记录未带用户身份（功能上线前产生），未计入「使用人数」。</div>`:""}`;
+}
+function _fmtTime(ts){
+  if(!ts) return "从未";
+  const d=new Date(ts*1000), p=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+/* ⚠️ 2026-10-23：把「邀请列表」的渲染抽成函数 —— 生成邀请后要能**只刷新这一块**。
+   原来生成完**什么都不刷新**（只有作废/重新启用会 wrap.remove()+openAdmin() 重开面板），
+   于是新生成的邀请**根本不出现在列表里**，要关掉面板重开才看得到（主人报的「列表没有数据&不刷新」）。
+   而又不能直接 openAdmin() —— 那会把刚生成的那个**链接框冲掉**，用户就没法复制了。
+   ⇒ 抽成纯函数，返回 {rows, count}，供首次渲染与局部刷新共用。 */
+function buildInviteList(d){
+  const invAll=d.invites||[];
+  // ⚠️ 2026-10-23：**不能只看 enabled/exp 判"可用"** —— 一次性邀请被别人领走后，
+  //   它仍然 enabled、也还没过期，但**已经不能再用**。以后端下发的 `usable` 为准
+  //   （后端没给该字段时退回老判据，保证前后端不同版本也能跑）。
+  const _invUsable=v=>(v.usable!==undefined)
+      ? !!v.usable
+      : !!(v.enabled && !(v.exp && v.exp*1000 < Date.now()));
+  // ⚠️⚠️ 2026-10-23 修（主人报「邀请生成后无效」的真实根因）：
+  //   一次性邀请**被别人领走之后**，记录仍然 enabled、也还没过期 ——
+  //   原来列表只按 enabled/exp 判，于是它**照样显示"可用"**，管理员就把它发给了下一个人，
+  //   对方打开必然 410「已经被领取过了」。
+  //   实测：线上 25 条邀请里有 **4 条**处于这种"已被领取却显示可用"的状态（全是一次性），
+  //   而**6 条一次性邀请无一例外全被领过** —— 也就是说这个坑**每条一次性邀请都会踩一次**。
+  //   ⇒ 两处修：① 以后端 `usable` 为"能不能用"的唯一判据；
+  //            ② **不再把它藏起来**，而是**留在列表里标成「已领取」** ——
+  //               藏起来管理员只会以为"我的邀请哪去了"，显示出来才能一眼看懂。
+  const invShown=invAll.filter(v=>!!v.enabled && !((v.exp||0)*1000 < Date.now()));   // 在列表里显示的（含已领取）
+  const invUsableCnt=invAll.filter(_invUsable).length;                               // 真正还能用的
+  const invDeadCnt=invAll.length-invShown.length;                                    // 已作废/已过期，不显示
+  const invRows=invShown.map(v=>{
+    const isOne=(v.kind==="single");
+    const claimed=(v.claimed||0);
+    const usable=_invUsable(v);
+    // 状态文案：已领取的一次性邀请必须说清"为什么不能用"，否则又回到"看着能用、点了 410"
+    let status;
+    if(usable) status='<span style="color:#15803d">可用</span>';
+    else if(isOne && claimed) status='<span style="color:#b45309;font-weight:600">已领取，不可再用</span>';
+    else status='<span style="color:#94a3b8">不可用</span>';
+    return `<tr>
+      <td>${esc(v.id)}</td>
+      <td>${isOne?'<span style="color:#b45309;font-weight:600">一次性</span>':'多人共用'}</td>
+      <td>${esc(v.note||"")}</td>
+      <td>${_fmtTime(v.exp)}</td><td>${claimed}</td>
+      <td>${status}</td>
+      <td><button type="button" class="adm-btn danger" data-inv="${esc(v.id)}">作废</button>${
+        (!usable && claimed)
+          ? `<button type="button" class="adm-btn" data-invreset="${esc(v.id)}" title="清空「已领」名单，让这条链接能再服务一个人（已领过的人不受影响）">重新启用</button>`
+          : ""}</td></tr>`;
+  }).join("") || `<tr><td colspan="7" style="color:#64748b">（暂无邀请）</td></tr>`;
+  const count = `邀请（可用 ${invUsableCnt} 条`
+    + ((invShown.length-invUsableCnt) ? `<span style="color:#b45309;font-weight:400;font-size:12px">，${invShown.length-invUsableCnt} 条已领取/不可用</span>` : "")
+    + (invDeadCnt ? `<span style="color:#94a3b8;font-weight:400;font-size:12px">，另有 ${invDeadCnt} 条已失效不显示</span>` : "")
+    + `）`;
+  return {rows:invRows, count:count};
+}
+
+/* 生成邀请后**局部刷新列表**：只换 tbody 与计数，**不动上面那个链接框**。
+   ⚠️ 顺带**自动展开列表** —— 否则列表是收起状态，用户还是看不到新邀请（照样是「没刷新」的观感）。 */
+async function refreshInviteList(){
+  try{
+    const r=await fetch("/admin/status",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:"{}",signal:AbortSignal.timeout(15000)});
+    const d=await r.json();
+    const L=buildInviteList(d);
+    const tb=document.querySelector("#admInvBody tbody"); if(tb) tb.innerHTML=L.rows;
+    const c=document.getElementById("admInvCount"); if(c) c.innerHTML=L.count;
+    const b=document.getElementById("admInvBody"), a=document.getElementById("admInvArr");
+    if(b && b.style.display==="none"){ b.style.display="block"; if(a) a.textContent="▾"; }
+    return true;
+  }catch(e){ return false; }
+}
+
+async function openAdmin(){
+  const d=await loadAdmin();
+  if(!d){ showToast("拉取管理信息失败（可能已不是管理员）","bad"); return; }
+  _admin=d;
+  const old=$("adminModal"); if(old) old.remove();
+  const net=d.intranet||{}, q=d.queue||{}, sys=d.system||{};
+  const dot = net.online ? "🟢" : (net.enabled ? "🔴" : "⚪");
+  const netTxt = !net.enabled ? "未启用（未配置内网通道）" : (net.online ? "在线（可查终端数据）" : "离线（Mac 不在线）");
+  /* ⭐ 2026-11-02：按「名字」分组显示。
+     老邀请流程是自动命名（灰度第一批-01…），管理员看不出是谁、也没法按人统计；
+     名字改为用户自己填之后，**同名 = 同一个人**，设备数按 fp8 **去重合并**。 */
+  const _names={};
+  (d.users||[]).forEach(u=>{ _names[u.uid]=u.name||""; });
+  const _gmap=new Map();
+  (d.users||[]).forEach(u=>{
+    const key=(u.name||"").trim()||u.uid;
+    let g=_gmap.get(key);
+    if(!g){ g={name:key,staff:"",list:[],dids:{},use:0,last:0,allBad:true,auto:false}; _gmap.set(key,g); }
+    g.list.push(u);
+    if(!g.staff && u.staff_id) g.staff = u.staff_id;   // ⭐ 2026-11-04：分组主显示用 LDAP 账号
+    (u.device_ids||[]).forEach(x=>{ g.dids[x]=1; });      // 去重：同一台设备可能出现在多条身份里
+    g.use += (u.use_count||0);
+    g.last = Math.max(g.last, u.last_used_at||0);
+    if(u.enabled && !u.revoked) g.allBad=false;
+    if(u.name_auto) g.auto=true;
+  });
+  const _groups=[..._gmap.values()].sort((a,b)=>
+    (a.allBad?1:0)-(b.allBad?1:0) || b.last-a.last || String(a.name).localeCompare(String(b.name),"zh"));
+  const _uBtns=u=>{
+    const bad = !u.enabled || u.revoked;
+    const t = bad
+      ? `<button type="button" class="adm-btn ok" data-act="enable" data-uid="${esc(u.uid)}">恢复</button>`
+      : `<button type="button" class="adm-btn danger" data-act="disable" data-uid="${esc(u.uid)}">停用</button>`;
+    // ⚠️ 名字不进属性（esc 不转义引号），改名时从 _names 里按 uid 取
+    return `<button type="button" class="adm-btn" data-rename="${esc(u.uid)}" title="改显示名（同名的会归到同一组）">改名</button>${t}`;
+  };
+  const rows=_groups.map((g,gi)=>{
+    const multi=g.list.length>1, devN=Object.keys(g.dids).length;
+    const status = g.allBad ? `<span style="color:#b91c1c">已停用</span>`
+      : (g.list.some(x=>!x.enabled||x.revoked) ? `<span style="color:#b45309">部分停用</span>`
+      : `<span style="color:#15803d">正常</span>`);
+    // ⭐ 2026-11-04：主标题优先用 LDAP 账号（用户自填），没有才退回名字
+    const _u0 = g.list[0];
+    const _title = g.staff || g.name;
+    const badge = (!g.staff && g.auto)
+      ? ` <span style="background:#fef3c7;color:#b45309;border-radius:6px;padding:1px 5px;font-size:11px" title="这是老邀请流程自动起的名字，点「改名」改成真名">待补名字</span>` : "";
+    const sub = multi
+      ? ` <span style="color:#94a3b8;font-size:11.5px">${g.list.length} 个身份</span>`
+      : ` <span style="color:#94a3b8;font-size:11.5px">${esc(_u0.uid)}${g.staff && _u0.name?" · "+esc(_u0.name):""}</span>`;
+    const head=`<tr class="adm-grow" data-g="${gi}" style="background:#f8fafc;border-top:1px solid #e2e8f0;cursor:${multi?"pointer":"default"}">
+      <td style="padding:5px 6px">${multi?'<span class="adm-garr">▸</span> ':""}<b>${esc(_title)}</b>${badge}${sub}</td>
+      <td>${devN} 台</td><td>${status}</td><td>${g.use}</td><td>${_fmtTime(g.last)}</td>
+      <td>${multi?"":_uBtns(g.list[0])}</td></tr>`;
+    if(!multi) return head;
+    return head + g.list.map(u=>{
+      const bad = !u.enabled || u.revoked;
+      return `<tr class="adm-drow" data-g="${gi}" style="display:none;background:#fff">
+        <td style="padding:4px 6px 4px 22px;color:#64748b">${u.staff_id?esc(u.staff_id)+" · "+esc(u.uid):esc(u.uid)}</td>
+        <td>${u.devices||0} 台</td>
+        <td>${bad?'<span style="color:#b91c1c">已停用</span>':'<span style="color:#15803d">正常</span>'}</td>
+        <td>${u.use_count||0}</td><td>${_fmtTime(u.last_used_at)}</td>
+        <td>${_uBtns(u)}</td></tr>`;
+    }).join("");
+  }).join("") || `<tr><td colspan="6" style="color:#64748b">（无用户）</td></tr>`;
+
+  // 邀请列表只显示「可用」的；失效的（已作废/已过期）数据仍保留在后端，仅前端不渲染
+  //（2026-09-25 主人要求去掉 —— 领取校验只查 enabled/exp，失效记录本身无功能作用，删显示零影响）
+  const _invL=buildInviteList(d);
+
+  const wrap=document.createElement("div");
+  wrap.id="adminModal";
+  wrap.style.cssText="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  wrap.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:760px;width:100%;max-height:86vh;overflow:auto;padding:18px 18px 14px;font-size:13.5px;color:#0f172a">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <b style="font-size:15px">⚙ 管理员面板</b>
+      <span style="color:#64748b;font-size:12px">当前身份 ${esc(d.me||"-")}</span>
+      <button type="button" id="admClose" style="margin-left:auto;border:0;background:#f1f5f9;border-radius:8px;padding:5px 10px;cursor:pointer">关闭</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 11px">
+        <div style="color:#64748b;font-size:12px">内网通道（终端数据）</div>
+        <div style="margin-top:3px">${dot} ${netTxt}</div>
+      </div>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 11px">
+        <div style="color:#64748b;font-size:12px">排队 / 并发</div>
+        <div style="margin-top:3px">正在处理 ${q.active||0}/${q.limit||3}　等待 ${q.waiting||0} 位</div>
+      </div>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 11px">
+        <div style="color:#64748b;font-size:12px">知识库</div>
+        <div style="margin-top:3px">${sys.docs||0} 段 / ${esc(CODENAME_SRC)} ${Number(sys.code_lines||0).toLocaleString("zh-CN")} 行</div>
+      </div>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 11px">
+        <div style="color:#64748b;font-size:12px">模型</div>
+        <div style="margin-top:3px">${esc(sys.provider||"-")} ${esc(sys.model||"")}</div>
+      </div>
+    </div>
+    <!-- 使用统计（2026-10-12 主人要求）-->
+    <div style="display:flex;align-items:center;gap:8px;margin:2px 0 8px">
+      <b style="font-size:13.5px">📊 使用统计</b>
+      <select id="admUsageDays" style="border:1px solid #cbd5e1;border-radius:8px;padding:3px 7px;font-size:12px;font-family:inherit;background:#fff">
+        <option value="7">最近 7 天</option>
+        <option value="15" selected>最近 15 天</option>
+        <option value="30">最近 30 天</option>
+      </select>
+      <span id="admUsageTip" style="color:#94a3b8;font-size:11.5px"></span>
+    </div>
+    <div id="admUsage" style="margin-bottom:12px">${usageHtml(_usageCache)}</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button type="button" id="admReload" style="border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:9px;padding:6px 11px;cursor:pointer">🔄 重载知识库</button>
+      <button type="button" id="admReview" style="border:1px solid #dbeafe;background:#f8fafc;color:#334155;border-radius:9px;padding:6px 11px;cursor:pointer">📋 案例审查</button>
+      <span id="admTip" style="align-self:center;color:#64748b;font-size:12px"></span>
+    </div>
+    <!-- 2026-09-25：用户/邀请列表默认收起，点击标题展开（31 条平铺太占高度）-->
+    <div id="admUsersHead" style="margin-bottom:6px;color:#334155;font-weight:600;cursor:pointer;user-select:none">
+      <span id="admUsersArr">▸</span> 用户（${_groups.length} 人 / ${(d.users||[]).length} 个身份）
+      <span style="color:#94a3b8;font-weight:400;font-size:12px">点名字展开同名的多台身份</span>
+    </div>
+    <div id="admUsersBody" style="display:none">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;display:block;max-height:240px;overflow-y:auto">
+        <thead><tr style="color:#64748b;text-align:left">
+          <th style="padding:5px 6px">LDAP账号 / 名字</th><th>设备</th><th>状态</th><th>次数</th><th>最后使用</th><th></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+    <!-- 邀请管理（2026-09-25） -->
+    <div style="margin:14px 0 6px;color:#334155;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span id="admInvHead" style="cursor:pointer;user-select:none">
+        <span id="admInvArr">▸</span> <span id="admInvCount">${_invL.count}</span>
+        <span style="color:#94a3b8;font-weight:400;font-size:12px">点击展开</span>
+      </span>
+      <select id="invKind" title="邀请类型" style="border:1px solid #e2e8f0;border-radius:8px;padding:4px 6px;font-size:12.5px">
+        <option value="multi">多人共用</option>
+        <option value="single">一次性（一人）</option>
+      </select>
+      <input id="invNote" placeholder="备注（只给自己看，如「第三批-门店」）" title="只是给自己标记这条邀请；2026-11-02 起不再拿它给成员起名（成员自己填名字）" style="flex:1;border:1px solid #e2e8f0;border-radius:8px;padding:4px 8px;font-size:12.5px">
+      <input id="invTtl" type="number" min="1" value="12" title="邀请链接多少小时内有效（默认 12 小时）" style="width:88px;border:1px solid #e2e8f0;border-radius:8px;padding:4px 8px;font-size:12.5px">
+      <button type="button" id="invCreate" style="border:0;background:#2563eb;color:#fff;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12.5px">＋ 生成</button>
+    </div>
+    <div id="admInvBody" style="display:none">
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px;display:block;max-height:200px;overflow-y:auto">
+        <thead><tr style="color:#64748b;text-align:left">
+          <th style="padding:5px 6px">id</th><th>类型</th><th>备注</th><th>到期</th><th>已领</th><th>状态</th><th></th>
+        </tr></thead>
+        <tbody>${_invL.rows}</tbody>
+      </table>
+    </div>
+    <div id="invResult" style="margin-top:8px;color:#0f172a;font-size:12px"></div>
+    <div style="margin-top:10px;color:#94a3b8;font-size:11.5px">
+      ⚠️ 停用会立即让该用户的令牌失效（写吊销名单）；不能停用自己。
+      作废邀请只影响**尚未领取**的链接，已领过的人不受影响。操作均写审计日志。
+    </div>
+  </div>`;
+  document.body.appendChild(wrap);
+  $("admClose").addEventListener("click",()=>wrap.remove());
+  wrap.addEventListener("click",e=>{ if(e.target===wrap) wrap.remove(); });
+  // ── 用户 / 邀请列表折叠（2026-09-25：默认收起，点标题展开）──
+  const fold=(headId,arrId,bodyId)=>{
+    $(headId).addEventListener("click",()=>{
+      const b=$(bodyId), open=b.style.display!=="none";
+      b.style.display=open?"none":"";
+      $(arrId).textContent=open?"▸":"▾";
+    });
+  };
+  fold("admUsersHead","admUsersArr","admUsersBody");
+  fold("admInvHead","admInvArr","admInvBody");
+
+  // ── 使用统计（2026-10-12）：打开面板即拉一次，切换天数重拉 ──
+  const refreshUsage = async (days)=>{
+    const tip=$("admUsageTip"); if(tip) tip.textContent="加载中…";
+    const u = await loadUsage(days);
+    _usageCache = u; _usageDays = days||_usageDays;
+    const box=$("admUsage");
+    if(box) box.innerHTML = usageHtml(u);
+    if(tip) tip.textContent = u ? "" : "拉取失败";
+  };
+  const sel=$("admUsageDays");
+  if(sel) sel.addEventListener("change", ()=>refreshUsage(parseInt(sel.value,10)||15));
+  refreshUsage(_usageDays);
+
+  // ── 知识库热重载 ──
+  $("admReload").addEventListener("click", async ()=>{
+    const tip=$("admTip"); tip.textContent="重载中…（约 10~30 秒）";
+    try{
+      const r=await fetch("/admin/reload",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({}),signal:AbortSignal.timeout(120000)});
+      const j=await r.json().catch(()=>({}));
+      tip.textContent = r.ok ? `已重载：${j.docs||"-"} 段` : ("失败："+(j.detail||r.status));
+      showToast(r.ok?"知识库已重载":"重载失败", r.ok?"ok":"bad");
+      if(r.ok){ checkHealth && checkHealth(); }
+    }catch(e){ tip.textContent="重载失败："+(e.message||e); }
+  });
+  // ── 案例审查（新标签页打开，不打断当前会话）──
+  $("admReview").addEventListener("click", ()=>{ window.open("/review","_blank"); });
+
+  // ── 邀请：生成 ──
+  $("invCreate").addEventListener("click", async ()=>{
+    const note=($("invNote").value||"").trim();
+    // ⚠️ 2026-10-23：输入框默认值 12；**清空时也按 12 算**。
+    //   原来空值传 0，后端 `ttl_hours or None` 会退回 AUTH_BIND_TTL_HOURS(24) ——
+    //   于是"表单显示空、实际 24 小时"，跟主人要的 12 不一致。这里兜住。
+    const ttl=parseInt($("invTtl").value||"12",10)||12;
+    const kind=($("invKind") && $("invKind").value) || "multi";
+    try{
+      const r=await fetch("/admin/invite/create",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({note, ttl_hours: ttl||0, kind}),signal:AbortSignal.timeout(15000)});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok){ showToast("生成失败："+(j.detail||r.status),"bad"); return; }
+      const url=location.origin + (j.url||"");
+      const isOne=(j.kind==="single");
+      $("invResult").innerHTML = `✅ 已生成 <b>${esc(j.id)}</b>（${esc(j.note||"")}，${j.ttl_hours} 小时有效${isOne?"，<b style=\"color:#b45309\">一次性</b>":""}）<br>
+        ${isOne?'<span style="color:#b45309">⚠️ 一次性邀请：<b>只能给一个人</b>，对方领取后链接立即失效 —— 请单独发给本人，不要群发。</span><br>':''}
+        <input id="invUrl" readonly value="${esc(url)}" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:5px 8px;margin-top:5px;font-size:12px">
+        <button type="button" id="invCopy" style="margin-top:5px;border:0;background:#0f172a;color:#fff;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer">复制链接</button>`;
+      $("invCopy").addEventListener("click", async ()=>{
+        try{ await navigator.clipboard.writeText(url); showToast("链接已复制","ok"); }
+        catch(_){ $("invUrl").select(); showToast("请按 Ctrl/⌘+C 复制","ok"); }
+      });
+      // ⭐ 生成后**必须刷新列表**：否则新邀请不出现在列表里（主人报的「列表没有数据&不刷新」）。
+      //   用局部刷新而非 openAdmin() —— 后者会把上面这个链接框冲掉。
+      const okr = await refreshInviteList();
+      showToast(okr ? "已生成，列表已刷新" : "已生成（列表刷新失败，重开面板可看到）", "ok");
+    }catch(e){ showToast("生成失败："+(e.message||e),"bad"); }
+  });
+  // ── 邀请：作废 ──
+  wrap.querySelectorAll("[data-inv]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const iid=btn.getAttribute("data-inv");
+      if(!(await confirmBox(`作废邀请 ${iid}？尚未领取的链接会立即失效。`, "作废", "取消"))) return;
+      btn.disabled=true;
+      try{
+        const r=await fetch("/admin/invite/revoke",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({invite_id:iid}),signal:AbortSignal.timeout(10000)});
+        const j=await r.json().catch(()=>({}));
+        showToast(r.ok?"已作废":"失败："+(j.detail||r.status), r.ok?"ok":"bad");
+      }catch(e){ showToast("操作失败："+(e.message||e),"bad"); }
+      wrap.remove(); openAdmin();
+    });
+  });
+  // ── 邀请：重新启用（清空「已领」名单）2026-10-23 ──
+  // 起因：一次性邀请被领走后链接就 410，而领取幂等**只靠浏览器 Cookie**
+  //（换浏览器/无痕/从微信打开 → 被当成新的人 → 把邀请消耗掉）
+  // ⇒ 给管理员一个一键救回的动作，比"作废了重新生成"顺手。
+  wrap.querySelectorAll("[data-invreset]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const iid=btn.getAttribute("data-invreset");
+      if(!(await confirmBox(`重新启用邀请 ${iid}？\n\n会清空它的「已领」名单，让链接能再服务一个人。\n已经领过的人不受影响（他们的密钥早就独立生成了）。`, "重新启用", "取消"))) return;
+      btn.disabled=true;
+      try{
+        const r=await fetch("/admin/invite/reset",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({invite_id:iid}),signal:AbortSignal.timeout(10000)});
+        const j=await r.json().catch(()=>({}));
+        showToast(r.ok?`已重新启用（清空 ${(j.cleared==null?0:j.cleared)} 条已领记录）`:"失败："+(j.detail||r.status), r.ok?"ok":"bad");
+      }catch(e){ showToast("操作失败："+(e.message||e),"bad"); }
+      wrap.remove(); openAdmin();
+    });
+  });
+  // ── 用户分组：点一下展开同名的多个身份（2026-11-02）──
+  wrap.querySelectorAll(".adm-grow").forEach(tr=>{
+    tr.addEventListener("click", e=>{
+      if(e.target.closest("button")) return;
+      const gi=tr.getAttribute("data-g");
+      const ds=wrap.querySelectorAll('.adm-drow[data-g="'+gi+'"]');
+      if(!ds.length) return;
+      const open=ds[0].style.display!=="none";
+      ds.forEach(r=>{ r.style.display = open?"none":"table-row"; });
+      const a=tr.querySelector(".adm-garr"); if(a) a.textContent = open?"▸":"▾";
+    });
+  });
+
+  // ── 改名（2026-11-02）：把老邀请的「灰度第一批-01」改成人名；同名自动归组 ──
+  wrap.querySelectorAll("[data-rename]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const uid=btn.getAttribute("data-rename");
+      const v=await inputBox("把「"+(_names[uid]||uid)+"」改成什么名字？同名会归到同一组。", "例：张三", "保存");
+      if(!v) return;
+      if(v.trim().length<2){ showToast("名字至少 2 个字","bad"); return; }
+      btn.disabled=true;
+      try{
+        const r=await fetch("/admin/user/rename",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({uid, name:v.trim()}), signal:AbortSignal.timeout(10000)});
+        const j=await r.json().catch(()=>({}));
+        showToast(r.ok? "已改名为「"+(j.name||v.trim())+"」" : ("失败："+(j.detail||r.status)), r.ok?"ok":"bad");
+      }catch(e){ showToast("操作失败："+(e.message||e),"bad"); }
+      wrap.remove(); openAdmin();     // 重新分组
+    });
+  });
+
+  wrap.querySelectorAll("[data-act]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      const uid=btn.getAttribute("data-uid"), act=btn.getAttribute("data-act");
+      if(act==="disable" && !(await confirmBox(`停用 ${uid}？其令牌会立即失效。`, "停用", "取消"))) return;
+      btn.disabled=true;
+      try{
+        const r=await fetch(act==="disable"?"/admin/user/disable":"/admin/user/enable",{
+          method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({uid}), signal:AbortSignal.timeout(10000)
+        });
+        const j=await r.json().catch(()=>({}));
+        showToast(r.ok ? "已"+(act==="disable"?"停用":"恢复") : ("失败："+(j.detail||r.status)), r.ok?"ok":"bad");
+      }catch(e){ showToast("操作失败："+(e.message||e),"bad"); }
+      wrap.remove(); openAdmin();   // 刷新列表
+    });
+  });
+}
+/* ===== 补全资料（2026-11-02 补名字 · 2026-11-04 加 LDAP 账号）=====
+   老邀请流程给每个人的名字是「灰度第一批-01」这种自动编号，管理员看不出是谁。
+   2026-11-04 起管理页改为按 LDAP 账号认人 ⇒ 这两项必须在**下次使用时**补齐。
+   ⇒ 缺哪项问哪项；「先不填」只对**本次会话**有效，关页面重进还会再问。
+   ⚠️ 不硬锁死：一线可能正在处理紧急报障，允许「先不填」，但会一直提醒。 */
+(function(){
+  const SKIP = "profileAskSkipped";
+  function esc2(s){ return esc(String(s==null?"":s)); }
+  function render(opt){
+    if(document.getElementById("profileAsk")) return;
+    try{ if(sessionStorage.getItem(SKIP) === "1") return; }catch(e){}
+    const needName = !!opt.needName, needStaff = !!opt.needStaff;
+    if(!needName && !needStaff) return;
+    const mask = document.createElement("div");
+    mask.id = "profileAsk";
+    mask.style.cssText = "position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+    mask.innerHTML = `<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:18px;font:13.5px/1.6 -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;color:#0f172a;box-shadow:0 10px 30px rgba(15,23,42,.2)">
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px">还差一步：补全你的账号信息</div>
+      <div style="color:#64748b;font-size:12.5px;margin-bottom:10px">管理员靠这两项认人 —— 老邀请流程自动起的名字（如「灰度第一批-01」）看不出是谁。</div>
+      ${needName ? `<label style="display:block;margin:8px 0 4px;color:#334155">你的名字</label>
+        <input id="paName" maxlength="24" value="${esc2(opt.name||"")}" placeholder="例：张三"
+          style="width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:8px;padding:7px 9px;font-size:13.5px;font-family:inherit">` : ""}
+      ${needStaff ? `<label style="display:block;margin:10px 0 4px;color:#334155">LDAP 账号 <span style="color:#94a3b8">（与域账号一致）</span></label>
+        <input id="paStaff" maxlength="40" value="${esc2(opt.staff||"")}" placeholder="例：zuoyuan1" autocomplete="username"
+          style="width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:8px;padding:7px 9px;font-size:13.5px;font-family:inherit">` : ""}
+      <div id="paErr" style="color:#b91c1c;font-size:12.5px;min-height:18px;margin-top:6px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:2px">
+        <button id="paSkip" style="border:0;background:transparent;color:#64748b;cursor:pointer;font-family:inherit;font-size:12.5px">先不填（下次还会提醒）</button>
+        <button id="paOk" style="border:0;background:#2563eb;color:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;font-family:inherit">保存并继续</button>
+      </div></div>`;
+    document.body.appendChild(mask);
+    $("paSkip").addEventListener("click", ()=>{ try{ sessionStorage.setItem(SKIP, "1"); }catch(e){} mask.remove(); });
+    $("paOk").addEventListener("click", ()=>save(mask, opt));
+    const first = needName ? $("paName") : $("paStaff");
+    if(first) first.focus();
+    [["paName"],["paStaff"]].forEach(([id])=>{ const el=$(id); if(el) el.addEventListener("keydown", e=>{ if(e.key==="Enter") save(mask, opt); }); });
+  }
+  async function save(mask, opt){
+    const err = $("paErr");
+    const nEl = $("paName"), hEl = $("paStaff");
+    const n = nEl ? (nEl.value || "").trim() : "";
+    const h = hEl ? (hEl.value || "").trim() : "";
+    if(opt.needName && n.length < 2){ err.textContent = "名字至少 2 个字"; nEl.focus(); return; }
+    if(opt.needStaff && h.length < 2){ err.textContent = "请填写你的 LDAP 账号"; hEl.focus(); return; }
+    err.textContent = "";
+    const btn = $("paOk"); btn.disabled = true; btn.textContent = "保存中…";
+    try{
+      if(opt.needName){
+        const r = await fetch("/auth/name", {method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({name: n}), signal: AbortSignal.timeout(10000)});
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(j.detail || ("HTTP " + r.status));
+      }
+      if(opt.needStaff){
+        const r = await fetch("/auth/staff", {method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({staff: h}), signal: AbortSignal.timeout(10000)});
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(j.detail || ("HTTP " + r.status));
+      }
+      mask.remove();
+      showToast("已保存，谢谢！", "ok");
+    }catch(e){
+      btn.disabled = false; btn.textContent = "保存并继续";
+      err.textContent = "保存失败：" + (e.message || e);
+    }
+  }
+  setTimeout(async ()=>{
+    try{
+      const r = await fetch("/auth/whoami", {cache:"no-store", signal: AbortSignal.timeout(8000)});
+      const j = await r.json();
+      if(j && j.ok){
+        const needName = !!j.needs_name;
+        const needStaff = !j.staff_id;
+        if(needName || needStaff) render({needName, needStaff, name: j.name || "", staff: j.staff_id || ""});
+      }
+    }catch(e){ /* 拿不到就静默，不影响主流程 */ }
+  }, 1200);
+})();
+
+initAdmin();
+$("joinBtn").addEventListener("click", async ()=>{
+  const v = await inputBox("粘贴会话 ID（pos- 开头、共 14 位字符）", "pos-xxxxxxxxxxxxxx", "继续");
+  if(!v) return;                                           // 取消或没填
+  if(thread.length && !(await confirmBox("「继续会话」会用拉取到的内容替换当前这段对话，确定吗？", "替换", "取消"))) return;
+  openSession(v);
+});
+
+/* ========== 状态检测 ========== */
+/* 状态栏文字的"底稿"。⚠️ 排队时会在它后面追加「你排在第 N 位」，
+   等回答回来再用这份底稿复原 —— 不记底稿的话，复原时会把「知识 X 段」弄丢。
+   ⚠️ 用 `var` 而不是 `let`（2026-10-09）：等待话术的 `stopWaitHints()` 时机很早，
+   可能早于这里执行；`let` 会落进**暂时性死区**直接抛 ReferenceError，
+   而 `var` 声明提升、初值为 undefined，配合 `||` 兜底就不会炸。 */
+var _statusBase = "助手 在线";
+
+/* 服务状态行的显隐（2026-10-23 主人要求：正常时不显示那一行）。
+   ⚠️ 三种情况必须显示：离线告警 / 排队位次 / 处理中预计耗时。
+   其余情况（正常在线、知识段数这类日常信息）一律隐藏，别再占一行版面。 */
+function _showStatus(show){
+  const el=$("statusLine"); if(!el) return;
+  if(show) el.classList.add("show"); else el.classList.remove("show");
+}
+
+function setStatusText(t){
+  const el=$("statusText"); if(el) el.textContent=t;
+}
+
+/* 页头副标题 = 实时状态（2026-10-23 主人要求）。
+   `state` 三态：on（全绿）/ partial（黄：AI 正常但内网通道离线）/ off（红：AI 不可用）。
+   ⚠️ 知识**篇数**用 /healthz 的 `kb_files`（去重文件数）；后端版本旧、没这个字段时
+      退回 `docs`（切块数）并如实标成「段」—— 不能把 7000 段说成 7000 篇。 */
+function setHsub(text, state){
+  const el=$("hsubStatus"), t=$("hsubText");
+  if(t) t.textContent=text;
+  if(el) el.className = "hsub" + (state ? " "+state : "");
+}
+async function checkHealth(){
+  try{
+    const r = await fetch("/healthz",{signal:AbortSignal.timeout(8000)});
+    const j = await r.json().catch(()=>({}));
+    if(r.ok && j.status==="ok"){
+      $("statusDot").className="dot on";
+      $("statusLine").className="statusline on";
+      // 2026-09-28 主人要求：「数据在线」= 内网通道状态（与管理面板那项同源，来自 /healthz.intranet）
+      // ⭐ 2026-10-28 主人要求：**内网状态只对管理员显示**，普通用户完全看不到这一节。
+      //    身份来自 initAdmin() 的 /admin/status（后端判 X-Auth-User）；拿不到就是普通用户。
+      const isAdmin = !!_admin;
+      const it = j.intranet || {};
+      let itTxt = "数据检测中";                       // 后端还没探到（首次加载/刚重启）
+      if(it.enabled === false) itTxt = "数据未启用";   // 未配置内网通道
+      else if(it.online === true) itTxt = "数据在线";
+      else if(it.online === false) itTxt = "数据离线";
+      _statusBase = isAdmin
+        ? `助手 在线 · 知识 ${j.docs||"-"} 段 · ${itTxt}`
+        : `助手 在线 · 知识 ${j.docs||"-"} 段`;
+      // ---- 页头副标题：助手在线 · 内网在线 · 知识 118 篇 / 11911 段（内网段仅管理员可见）----
+      // ⚠️ 2026-10-27：**篇数和段数都要显示**。只显示「篇」会被误读成"知识库缩水了"
+      //    （118 看着比之前的大几千少很多），实际 118 是 .md 文件数、11911 是切块数，
+      //    同一份知识库的两个维度。两个都给，疑问自然消失。
+      const kbTxt = (j.kb_files === undefined || j.kb_files === null)
+        ? `知识 ${j.docs||"-"} 段`                     // 后端还没上 kb_files：如实说"段"
+        : `知识 ${j.kb_files} 篇 / ${j.docs||"-"} 段`;
+      let itShort = "内网检测中";
+      if(it.enabled === false) itShort = "内网未启用";
+      else if(it.online === true) itShort = "内网在线";
+      else if(it.online === false) itShort = "内网离线";
+      // AI 正常 + 内网离线 ⇒ 黄灯：还能问答，但查不到终端数据（这是**部分可用**，不是故障）
+      // 普通用户看不到内网，自然也不该因为内网离线变黄灯 —— 一律按绿灯处理。
+      setHsub(isAdmin ? `助手在线 · ${itShort} · ${kbTxt}` : `助手在线 · ${kbTxt}`,
+              (isAdmin && it.online === false) ? "partial" : "on");
+      // ⭐ 2026-10-23 主人要求：正常时**不显示这一行**（隐藏，不占版面）。
+      //    它只在「排队 / 处理中」时才被 _showStatus(true) 显式打开。
+      _showStatus(false);
+      // 顺带看一眼系统忙不忙：并发跑满时提示「新提问要排队」，让用户有预期
+      fetch("/queue-status",{signal:AbortSignal.timeout(4000)})
+        .then(q=>q.json()).then(q=>{
+          if(q && q.limit && (q.active||0) >= q.limit){
+            _statusBase += " · 繁忙（新提问需排队）";
+            if(!_queueTimer){ setStatusText(_statusBase); _showStatus(true); }
+          }
+        }).catch(()=>{});
+      // ⚠️ 正在排队时别覆盖：状态栏那会儿显示的是「你排在第 N 位」
+      if(!_queueTimer) setStatusText(_statusBase);
+    }else throw 0;
+  }catch(e){
+    $("statusDot").className="dot off";
+    $("statusLine").className="statusline off";
+    _statusBase="助手 离线";
+    setStatusText(_statusBase);
+    _showStatus(true);           // ⭐ 离线必须显示（红字告警）
+    setHsub(!!_admin ? "助手离线 · 内网离线 · 知识 — 篇" : "助手离线 · 知识 — 篇", "off");
+  }
+}
+
+/* ========== 发送 ========== */
+async function doSend(mode="free"){
+  if(busy) return;
+  // 「案例审查」是暗号不是提问：新标签页打开审查页，不打断当前会话，也不发给 AI
+  const raw = input.value.trim();
+  if(raw === "案例审查" || raw.replace(/\s+/g,"") === "案例审查"){
+    input.value=""; autoGrow();
+    window.open("/review","_blank");   // 走 /review（Cloudflare 静态资源会把 /review.html 307 到它）
+    return;
+  }
+  /* 有待提交的日志附件 → **只随请求发走，不拼进输入框、不上屏**。
+     ⚠️ 2026-11-07 主人反馈：原来是把日志全文拼进 input.value，结果整段日志被渲染进用户气泡，
+        一屏全是日志、会话记录也被撑爆。
+     现在拆成两份：
+       · logPayload —— 跟着 question 发给后端（后端 _split_attached_log 仍能按「（附：…）」切开，
+                       日志照旧只进模型、不进检索）
+       · logNote    —— 只在气泡里留一行摘要，用户能确认"附件确实带上了" */
+  let logPayload = "", logNote = "";
+  if(_logAttach && _logAttach.text){
+    // 说清"这是什么"，模型才不会把一段普通文本当成报错日志去解时间线
+    const meta = _logAttach.win ? `（时间窗口：${_logAttach.win}）` : "";
+    const label = _logAttach.kind === "zip"
+      ? `（附：排查日志包 ${_logAttach.name}${meta}）`
+      : _logAttach.kind === "txt"
+        ? `（附：文本文件 ${_logAttach.name}${meta}）`
+        : `（附：报错日志片段${meta}）`;
+    logPayload = `${label}\n` + _logAttach.text;
+    logNote = `📎 已附日志：${_logAttach.name} · 取 ${_logAttach.took}/${_logAttach.rows} 行`
+            + (_logAttach.win ? ` · ${_logAttach.win}` : "");
+    clearLogAttach();
+  }
+  let text = input.value.trim();
+  // ⭐ 2026-10-27：**只发附件、不打字**也要能发出去（截图/日志扔进来就等回答，是最常见的用法）。
+  //   后端 question 是必填（空串会 400）⇒ 这里补一句自然的话术当提问，别用「（无描述）」这种占位符，
+  //   它会被当成正文进 prompt，读起来也别扭。
+  const _hasImg = _chatImgs.length > 0 || (window._pendingImgs||[]).length > 0;
+  if(!text && !_hasImg && !logPayload) return;
+  if(!text) text = "请看这个附件，帮我看看是什么问题。";
+  // 气泡里只显示「用户打的字 + 一行附件摘要」；日志正文只发给后端，不上屏
+  const displayText = logNote ? `${text}\n\n${logNote}` : text;
+  input.value=""; autoGrow(); $("sendBtn").disabled = busy = true;
+  hideErr();
+
+  // 报障卡带过来的截图：优先用服务端 id，上传没成功则用 base64 直传兜底
+  // + 底部输入框里待发的图（2026-10-27）：两者合并后一起发，卡片优先在前。
+  const imgs = (window._pendingImgs||[]).slice();
+  window._pendingImgs = null;
+  const chatImgs = _chatImgs.slice();
+  imgs.push(...chatImgs);
+
+  // ⚠️ 从建消息到收尾全部包进 try。渲染/存档一旦抛错，也必须走 finally 把 busy 放开 ——
+  //    2026-09-16 事故：renderMsg 抛 ReferenceError 落在 try 之外 → busy 永久 true，
+  //    页面表现成「点了没反应」＋「发送键永远点不动」。
+  try{
+    // 首条消息发出前，把首屏区（入口卡 / 报障卡）清掉 —— 否则它会一直挂在对话最上面
+    _clearWelcomeZone();
+    const userMsg = {role:"user", content:displayText, time:nowStr(), imgs, d:_dayKey()};
+    thread.push(userMsg);
+    // 图片已随本条消息带走 ⇒ 立刻清空待发区（否则下一轮会重复发送同一批图）
+    _chatImgs = []; renderChatThumbs();
+    renderMsg(userMsg); saveThread();
+
+    typingNode();
+    // history = 除最新一条外、**属于今天**的最近 HISTORY_ROUNDS 轮。
+    // ⭐ 2026-10-28 跨天隔离：过了当天，旧记录只留作查看，不再进上下文；
+    //    后端检索主 query / 日志证据都是从 history 里挑的，所以这一过滤就同时挡住了"旧问题带偏检索"。
+    const _today = _dayKey();
+    const histMsg = thread.slice(0,-1)
+      .filter(m => (m.d || (m.ts ? _dayKey(m.ts) : null)) === _today);
+    const history = histMsg.slice(-HISTORY_ROUNDS*2).filter(m=>m.role!=="welcome").map(m=>({role:m.role, content:m.content}));
+    // 排队用：rid 必须在**发请求前**生成，这样等待期间就能查到自己排第几
+    const rid = newRid();
+    const _est = estimateWait(text);
+    if(_est >= 30){ setStatusText(`正在处理，预计约 ${_est} 秒（视任务规模）…`); _showStatus(true); }
+    startQueuePoll(rid);
+    const r = await fetch(API,{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({question:(logPayload ? `${text}\n\n${logPayload}` : text), history, mode, rid,
+                            images: imgs.map(im=>im.id||im.data).filter(Boolean)}),
+      signal: AbortSignal.timeout(240000)
+    });
+    const j = await r.json().catch(()=>({}));
+    $("typingMsg")&&$("typingMsg").remove(); stopWaitHints(); stopQueuePoll();
+    if(r.status===401){
+      // 访问验证失效（令牌到期 / 换了浏览器 / 被清 Cookie）—— 网关这时回的是登录页 HTML，
+      // 直接说清"刷新即可重新验证"，比笼统报「请求失败(401)」有用得多。
+      thread.push({role:"assistant", time:nowStr(), d:_dayKey(),
+        content:"🔐 **访问验证已失效**（设备令牌到期，或换了浏览器 / 清了 Cookie）。刷新页面重新验证即可，这段对话不会丢。"});
+    }else if(r.status===503 || j.status==="offline"){
+      thread.push({role:"assistant", time:nowStr(), d:_dayKey(), content:"⚠️ 本机 AI 服务当前不在线（可能关机/断网/未启动），请稍后再试，或联系运维确认本机状态。"});
+    }else if(!r.ok){
+      thread.push({role:"assistant", time:nowStr(), d:_dayKey(), content:`⚠️ 请求失败（${r.status}）：${j.detail||j.message||"请稍后重试"}`});
+    }else if(j.queued_out){
+      // 排队等待超上限（后端快速回绝，带位次与人话）—— 正常渲染答案气泡即可，
+      // 但**不当作案例收录**（这是排队信息不是回答，混进 cases 会污染质量信号）。
+      thread.push({role:"assistant", time:nowStr(), d:_dayKey(), content:j.answer||"(排队超限)", cid:newCid(), ts:Date.now(), verdict:""});
+    }else{
+      // 每条回答都带一个案例号：用户点按钮、或日后在审查页处理，都靠它对上号
+      const am = {role:"assistant", time:nowStr(), d:_dayKey(), content:j.answer||"(空回答)",
+                  sources:j.sources||[], code:j.code_sources||[],
+                  diagram:j.diagram||null,   // 简图 {kind,title,url}，渲染在气泡最上方
+                  user:j.user||"",           // 谁在用（网关注入的身份，用于使用统计）
+                  cid:newCid(), ts:Date.now(), verdict:""};
+      thread.push(am);
+      reportCase(am,"ask");   // 自动收录：没被点评的案例也应出现在审查页
+    }
+    renderMsg(thread[thread.length-1]);
+    saveThread();
+  }catch(e){
+    $("typingMsg")&&$("typingMsg").remove(); stopWaitHints(); stopQueuePoll();
+    showErr(e.name==="TimeoutError"
+      ? "这次处理超过 240 秒，已自动停止。可以直接再点一次发送重试；若仍超时，补充关键信息（POS 单号 / 商场店铺 / 报错截图）或把日志缩小到出问题的那几分钟，会快很多。"
+      : ("请求失败："+(e.message||e)));
+  }finally{
+    stopQueuePoll();   // 兜底：无论成功失败都停掉轮询，避免定时器泄漏
+    // ⚠️ 这里不能写死 false：等待期间用户可能又打了字，按钮可用性要跟输入框保持一致
+    busy=false; refreshSendBtn(); input.focus();
+    syncSession();   // 静默同步到服务端：换台电脑能接着看。内部已吞掉所有异常，不影响主流程
+  }
+}
+
+/* ========== 输入区交互 ========== */
+function autoGrow(){ input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,150)+"px"; }
+input.addEventListener("input", autoGrow);
+input.addEventListener("keydown", e=>{
+  if(e.key==="Enter" && !e.shiftKey && !e.isComposing){ e.preventDefault(); doSend(); }
+});
+// ⚠️ 不能直接写 `addEventListener("click", doSend)` —— 那样 Event 会被当成第一个参数（mode）传进去
+$("sendBtn").addEventListener("click", ()=>doSend("free"));
+/* 开始新一次报障 —— 自由聊天模式里的「📝 报障」用这一份：
+   清空当前对话 + 上一单的临时状态 → 切到报障模式并弹出信息卡。 */
+async function startNewReport(){
+  if(thread.length && !(await confirmBox("开始新一次报障？当前这段对话会被清空（清空后无法找回）。", "开始新报障", "取消"))) return;
+  thread=[]; picked.clear(); localStorage.removeItem(LS_KEY);
+  _cardImgs=[]; window._pendingImgs=null;
+  _logBusy=false; clearLogAttach();          // 上一单的日志不能带进新一次报障
+  _timeEditing=false; setReportTime("");     // 新一次报障 = 新的事故时间，一并清掉
+  saveSid("");                               // 新会话 = 新 ID（下次发送时由服务端重新分配）
+  _entryMode="report";                       // 切到报障模式
+  renderThread(); input.focus();
+}
+
+/* 「🗑 清空对话」—— 只清当前这段对话、**保持当前模式**，不弹报障卡。
+   ⚠️ 与「📝 报障」的区别：那个会切到报障模式并弹出信息卡，这个只是清空。
+   （2026-09-24 主人定：这个按钮原先是「＋ 新报障」，与「📝 报障」功能重复，现改为专用清空。） */
+async function clearConversation(){
+  if(!thread.length){ showToast("当前没有对话可清空","ok"); return; }
+  if(!(await confirmBox("清空当前这段对话？清空后无法找回。", "清空", "取消"))) return;
+  thread=[]; picked.clear(); localStorage.removeItem(LS_KEY);
+  _cardImgs=[]; window._pendingImgs=null;
+  _logBusy=false; clearLogAttach();
+  _timeEditing=false; setReportTime("");
+  saveSid("");
+  // ⚠️ _entryMode 保持不变：报障模式回到空卡片、自由模式回到空白，都不切模式
+  renderThread(); input.focus();
+  showToast("已清空对话","ok");
+}
+$("reportBtn").addEventListener("click", startNewReport);      // 跳新会话 + 弹报障卡
+$("newChatBtn").addEventListener("click", clearConversation);  // 只清空对话，不切模式
+
+/* 「❓ 能做什么」弹层（2026-10-28）：替代原「其他」入口。
+   ⚠️ 点遮罩 / 右上角 ✕ / Esc 都能关；打开时不允许背景滚动穿透。 */
+function openHelp(){ $("helpMask").classList.add("show"); }
+function closeHelp(){ $("helpMask").classList.remove("show"); }
+$("helpBtn").addEventListener("click", openHelp);
+$("helpClose").addEventListener("click", closeHelp);
+$("helpMask").addEventListener("click", e=>{ if(e.target === $("helpMask")) closeHelp(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") closeHelp(); });
+function showErr(t){ const el=$("errline"); el.textContent="⚠️ "+t; el.style.display="block"; }
+function hideErr(){ $("errline").style.display="none"; }
+
+/* ===== 日志文件：按「发生时间」±1 小时截取 =====
+   ⚠️ 不限制文件大小：大日志靠「发生时间 ±1h」收窄，而不是拒收。
+   时间不来自独立字段，就是报障卡那个「发生时间」（_reportTime 是全页唯一来源）；
+   未填则拦下并要求填写。流程：点「附加日志文件」→ 校验时间 → 选中文件后按时间窗筛选 →
+   带时间戳的行保留，无时间戳的续行（堆栈/报文）跟随上一行 → 结果随下一条消息发出。 */
+const LOG_WINDOW_MS = 60*60*1000;   // 前后各 1 小时
+const LOG_MAX_CHARS = 100000;       // 截取后仍超长时的安全上限（优先保留离事发点最近的）
+/* 日志包（zip）：一线常直接甩 `<SN>_<YYYY-MM-DD>.zip` 过来，里面是
+   `YYYY-MM-DD.txt`（POS）+ 可选的 `bankposMMDD.txt`（嘉利）。
+   解压在后端做（Python 标准库，可控防 zip bomb），前端只拿全文、仍按下面同一套时间窗截取。 */
+const LOG_ZIP_MAX_MB = ATTACH_MAX_BYTES / 1024 / 1024;   // 与图片/txt 统一 5MB
+const isZipFile = f => /\.zip$/i.test(f.name||"") || /zip/i.test(f.type||"");
+const fileToDataUrl = f => new Promise((res, rej)=>{
+  const fr = new FileReader();
+  fr.onload = () => res(fr.result);
+  fr.onerror = () => rej(new Error("文件读取失败，请重试"));
+  fr.readAsDataURL(f);
+});
+const fmtTs = d => `${_p2(d.getMonth()+1)}-${_p2(d.getDate())} ${_p2(d.getHours())}:${_p2(d.getMinutes())}`;
+const fmtKB = n => n>=1024*1024 ? (n/1024/1024).toFixed(1)+"MB" : Math.max(1,Math.round(n/1024))+"KB";
+
+/* ---------- 日志附件：一份状态，两个槽位 ----------
+   日志有两个入口（报障卡里挨着「添加截图」、footer 的「📎 附加排查日志」），但状态只有一份。
+   ⚠️ 渲染必须遍历全部槽位，否则会出现「卡里显示了、底部没显示」的不一致。
+   以前这里只是个 <span class="fname"> 文本，用户看不到「已收下」、也没法撤销 —— 改成卡片。 */
+let _logBusy = false;       // 正在读文件 / 截取（大日志要一两秒，这期间给明确的进行中态）
+let _logSyncT = null;       // 输入时间时的防抖句柄（见 renderWelcome 里 fTime 的监听）
+function logSlots(){ return [$("logSlotCard"), $("logSlotFoot")].filter(Boolean); }
+function clearLogAttach(){
+  _logAttach = null; _pendingLogFile = null;
+  logSlots().forEach(s=>{ s.innerHTML = ""; });
+}
+function renderLogAttach(){
+  const slots = logSlots();
+  let html = "";
+  if(_logBusy){
+    html = `<div class="attach wait">
+      <span class="ico"><span class="spin"></span></span>
+      <div class="info"><div class="nm">正在读取并截取日志…</div>
+      <div class="sub">大文件按「发生时间」前后 1 小时收窄，稍等</div></div>
+    </div>`;
+  }else if(_logAttach){
+    const a = _logAttach;
+    html = `<div class="attach">
+      <span class="ico">📄</span>
+      <div class="info">
+        <div class="nm">${esc(a.name)} · ${fmtKB(a.size)}</div>
+        <div class="sub">${a.detail?esc(a.detail):""}${esc(a.note)} → 取 <b>${a.took}/${a.rows}</b> 行（${fmtKB(a.text.length)}），随下一条消息提交</div>
+      </div>
+      <button type="button" class="rm" title="移除这份日志">✕</button>
+    </div>`;
+  }else if(_pendingLogFile){
+    const f = _pendingLogFile;
+    html = `<div class="attach wait">
+      <span class="ico">📄</span>
+      <div class="info">
+        <div class="nm">${esc(f.name)} · ${fmtKB(f.size)}</div>
+        <div class="sub">已收下，补填「发生时间」后自动按它前后 1 小时截取</div>
+      </div>
+      <button type="button" class="rm" title="移除这份日志">✕</button>
+    </div>`;
+  }
+  slots.forEach(s=>{ s.innerHTML = html; });
+  slots.forEach(s=>{
+    const b = s.querySelector(".rm");
+    if(b) b.addEventListener("click", ()=>{ clearLogAttach(); hideErr(); });
+  });
+}
+
+/* 解析一行里的时间戳；识别不到返回 null（该行继承上一行的时间） */
+function parseLogTs(line, base){
+  let m = line.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2}):(\d{2})/);
+  if(m){ const h=+m[4],mi=+m[5],s=+m[6]; if(h<=23&&mi<=59&&s<=59) return new Date(+m[1],+m[2]-1,+m[3],h,mi,s); }
+  // logcat 风格：09-14 14:30:12.345 （无年份，按用户填的时间取年）
+  m = line.match(/(?:^|[^\d])(\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+  if(m){ const h=+m[3],mi=+m[4],s=+m[5]; if(h<=23&&mi<=59&&s<=59) return new Date(base.getFullYear(),+m[1]-1,+m[2],h,mi,s); }
+  // 只有时间：14:30:12 或 [14:30:12]
+  m = line.match(/(?:^|[^\d:])(\d{1,2}):(\d{2}):(\d{2})(?:[.,]\d+)?/);
+  if(m){ const h=+m[1],mi=+m[2],s=+m[3]; if(h<=23&&mi<=59&&s<=59) return new Date(base.getFullYear(),base.getMonth(),base.getDate(),h,mi,s); }
+  return null;
+}
+function sliceLogByTime(text, center){
+  const lo=center.getTime()-LOG_WINDOW_MS, hi=center.getTime()+LOG_WINDOW_MS;
+  const rows=text.split(/\r?\n/); const kept=[]; let cur=null, stamped=0;
+  for(const ln of rows){
+    const ts=parseLogTs(ln, center);
+    if(ts){ stamped++; cur=ts; } else if(cur===null){ continue; }  // 首个时间戳之前的前言丢弃
+    if(cur<lo || cur>hi) continue;
+    kept.push(ln);
+  }
+  return {rows:rows.length, kept, stamped};
+}
+/* 仍超长时：从离事发时间点最远的一端开始丢，保证中间那段（事发前后）留下。
+   maxChars 可覆盖全局上限（autoTail 模式给每份单独限额时用）。 */
+function trimLog(lines, center, maxChars){
+  const limit = maxChars || LOG_MAX_CHARS;
+  let text=lines.join("\n");
+  if(text.length<=limit) return {text, trimmed:0};
+  const offs=[]; let cur=center;
+  for(const ln of lines){ const ts=parseLogTs(ln, center); if(ts) cur=ts; offs.push(Math.abs(cur.getTime()-center.getTime())); }
+  let a=0,b=lines.length-1,chars=text.length;
+  while(chars>limit && a<=b){
+    if(offs[a]>=offs[b]){ chars-=lines[a].length+1; a++; } else { chars-=lines[b].length+1; b--; }
+  }
+  const kept=lines.slice(a,b+1);
+  return {text:kept.join("\n"), trimmed:lines.length-kept.length};
+}
+/* 对「一份」日志文本做截取，返回正文与统计。
+   - 默认：按「发生时间 ±1 小时」精确切；
+   - wholeLog=true（主对话传 zip 且没填时间时的兜底）：不切时间窗，整份给，
+     超长则从**最早**的一端丢（保末尾）—— 报障通常就是刚才发生的事。
+   ⚠️ zip 里多份文件要各自切：两份时间戳格式不同（POS `09:01:22,536`，嘉利
+   `09:01:22.154`），先拼再切的话，无时间戳的分隔行会继承上一份末行时间，边界就错了。 */
+function sliceOneLog(text, center, opts){
+  opts = opts || {};
+  const lines = text.split(/\r?\n/);
+  if(opts.wholeLog){
+    const tr = trimLog(lines, center, opts.budget);
+    return {text:tr.text, took:lines.length-tr.trimmed, rows:lines.length,
+            stamped:0, trimmed:tr.trimmed, hit:true,
+            note:"未填发生时间，已附整份"};
+  }
+  const sl = sliceLogByTime(text, center);
+  if(sl.stamped === 0){
+    const tr = trimLog(lines, center, opts.budget);
+    return {text:tr.text, took:sl.rows-tr.trimmed, rows:sl.rows, stamped:0,
+            trimmed:tr.trimmed, hit:true, note:"未识别到时间戳，已整份保留"};
+  }
+  if(!sl.kept.length){
+    return {text:"", took:0, rows:sl.rows, stamped:sl.stamped, trimmed:0, hit:false, note:""};
+  }
+  const tr = trimLog(sl.kept, center, opts.budget);
+  return {text:tr.text, took:sl.kept.length-tr.trimmed, rows:sl.rows,
+          stamped:sl.stamped, trimmed:tr.trimmed, hit:true, note:""};
+}
+/* 取「日志里最后一条时间戳」：主对话传 zip 时用户可能没填发生时间，
+   用日志末尾当基准（刚出问题就贴日志过来是最常见的用法）。
+   只扫每个文件的末尾 800 行 —— 日志基本按时间顺序写，倒着找最快。 */
+function lastLogTs(parts){
+  for(const p of (parts||[])){
+    const lines = (p.text||"").split(/\r?\n/);
+    const from = Math.max(0, lines.length - 800);
+    for(let i = lines.length - 1; i >= from; i--){
+      const t = parseLogTs(lines[i], new Date());
+      if(t && !isNaN(t.getTime())) return t;
+    }
+  }
+  return null;
+}
+/* 时间没填 → 就地展开输入框（首屏时它藏在信息卡的「发生时间」里，这里负责兜底）
+   ⚠️ showPicker() 必须等一帧：syncTimeBox() 刚刚改过 timeBox 的 hidden，
+      布局还没算完，此时弹日历会因元素「没有布局框」而落到视口左上角 (0,0)。 */
+let _pendingLogFile = null;     // 用户在没填时间时就选好的日志文件，填完时间自动接着处理
+/* 消息型对话（首条消息发出后 #icard 已被 _clearWelcomeZone 清掉）**没有**「⑥ 发生时间」可填，
+   此时上传日志必须弹一次时间询问 —— 否则文件只能挂起、用户无处可填。
+   2026-11-07 主人反馈：不填时间就默认按"最后 1 小时"截取，报障时间一延迟就切错窗口。 */
+function askLogTimeModal(){
+  if($("logTimeAsk")) return;
+  const mask=document.createElement("div");
+  mask.id="logTimeAsk";
+  mask.style.cssText="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px";
+  mask.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:18px;font:13.5px/1.6 -apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;color:#0f172a;box-shadow:0 10px 30px rgba(15,23,42,.2)">
+    <div style="font-size:15px;font-weight:600;margin-bottom:4px">这份日志是什么时候出问题的？</div>
+    <div style="color:#64748b;font-size:12.5px;margin-bottom:10px">只保留你填的时间<b>前后 1 小时</b>内的日志。报障常会延迟，不填时间没法判断该截哪一段。</div>
+    <input id="logTimeIn" type="datetime-local"
+      style="width:100%;box-sizing:border-box;border:1px solid #e2e8f0;border-radius:8px;padding:8px 9px;font-size:13.5px;font-family:inherit">
+    <div id="logTimeErr" style="color:#b91c1c;font-size:12.5px;min-height:18px;margin-top:6px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap">
+      <button id="logTimeCancel" style="border:0;background:transparent;color:#64748b;cursor:pointer;font-family:inherit;font-size:12.5px">取消</button>
+      <button id="logTimeTail" style="border:1px solid #e2e8f0;background:#f8fafc;color:#475569;border-radius:8px;padding:7px 10px;cursor:pointer;font-family:inherit;font-size:12.5px">不确定，用日志最后时间</button>
+      <button id="logTimeOk" style="border:0;background:#2563eb;color:#fff;border-radius:8px;padding:8px 14px;cursor:pointer;font-family:inherit">按这个时间截取</button>
+    </div></div>`;
+  document.body.appendChild(mask);
+  const take=(v)=>{
+    if(!v){ $("logTimeErr").textContent="请先选择发生时间（选到分钟即可）"; return; }
+    mask.remove(); setReportTime(v);
+    const f=_pendingLogFile; _pendingLogFile=null;
+    if(f) ingestLogFile(f);
+  };
+  $("logTimeOk").addEventListener("click", ()=>take($("logTimeIn").value));
+  $("logTimeIn").addEventListener("keydown", e=>{ if(e.key==="Enter") take($("logTimeIn").value); });
+  // 显式选择"用日志最后时间"时才走原 autoTail 行为（整份给、超长保末尾）
+  $("logTimeTail").addEventListener("click", ()=>{
+    mask.remove();
+    const f=_pendingLogFile; _pendingLogFile=null;
+    if(f) ingestLogFile(f, null, {autoTail:true});
+  });
+  $("logTimeCancel").addEventListener("click", ()=>{
+    mask.remove(); _logBusy=false; clearLogAttach(); renderLogAttach();
+  });
+  const el=$("logTimeIn"); if(el) el.focus();
+}
+function markLogTimeMissing(){
+  // 2026-09-24：底部时间框已移除，时间**只在报障卡的「⑥ 发生时间」里填**。
+  // 卡在场 → 卡片内标红并聚焦；卡不在场（消息型对话，首条消息后被清掉）→ 弹窗问一次。
+  const inCard = !!$("icard") && !!$("fTime");
+  if(inCard){
+    $("fldTime").classList.add("miss");
+    $("fTime").scrollIntoView({block:"center", behavior:"smooth"});
+    $("fTime").focus();
+    requestAnimationFrame(()=>{ try{ $("fTime").showPicker && $("fTime").showPicker(); }catch(_){} });
+  }else{
+    askLogTimeModal();
+  }
+  showErr(_pendingLogFile
+    ? `日志「${_pendingLogFile.name}」已收下 ✅ 请先填「⑥ 发生时间」——系统只保留该时间前后 1 小时的日志；不填的话可能截不到出问题的那一段。填完会自动截取。`
+    : "请先填写「⑥ 发生时间」：系统只保留该时间前后 1 小时内的日志，填了才收日志文件");
+}
+/* 文件选择器现在只由卡片里的「📎 附加排查日志」(#logAddCard) 触发。
+   ⚠️ 底部那个入口（#logBtn / #timeBox / #timeEdit / #logTime）已于 2026-09-24 移除，
+      对应的事件绑定一并删掉 —— 保留会因元素不存在而抛错。 */
+/* 按「发生时间」前后 1 小时截取这份日志。选文件当下若还没填时间也不会丢：
+   文件先存进 _pendingLogFile，用户填完卡里的「⑥ 发生时间」后（见 fTime 的监听）会带它再调一次。 */
+async function ingestLogFile(f, cached, opts){
+  opts = opts || {};
+  let center=new Date(_reportTime);
+  const noTime = isNaN(center.getTime());
+  // 两个入口（报障卡 / 主对话）口径已统一：没填时间就拦下要求填 —— 截取基准只能由用户给。
+  // ⚠️ 2026-11-07：原「主对话没时间就自动取日志末尾」的分支已停用（opts.autoTail 现无调用方），
+  //    因为报障延迟时它会切到错误的一段、漏掉真正出问题的时间；参数保留以兼容旧调用。
+  if(noTime && !opts.autoTail){ _pendingLogFile=f; renderLogAttach(); return markLogTimeMissing(); }
+  _logBusy=true; renderLogAttach();
+
+  /* ① 取「待截取文本」：普通文件一份；zip 交给后端解开、拿回多份。
+     cached 是上次解压的结果 —— 用户回头改「发生时间」时直接复用，不必重复上传解压。 */
+  let parts, zipMeta=null;
+  if(cached && cached.length){
+    parts = cached;
+  }else{
+    try{
+      if(isZipFile(f)){
+        if((f.size||0) > LOG_ZIP_MAX_MB*1024*1024){
+          throw new Error(`日志包超过 ${LOG_ZIP_MAX_MB}MB，请拆分后再传`);
+        }
+        const dataUrl = await fileToDataUrl(f);
+        const r = await fetch("/upload-zip", {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({dataUrl, name:f.name}),
+          signal: AbortSignal.timeout(60000)
+        });
+        const j = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(j.detail || `日志包解压失败（HTTP ${r.status}）`);
+        const fs = j.files || [];
+        if(!fs.length) throw new Error("日志包里没有可读的文本文件");
+        parts = fs.map(x=>({name:x.name, label:x.label||"", text:x.text}));
+        zipMeta = {sn:j.sn||"", date:j.date||""};
+      }else{
+        parts = [{name:f.name||"日志", label:"", text: await f.text()}];
+      }
+    }catch(err){
+      _logBusy=false; renderLogAttach();
+      showErr((err && err.message) ? err.message : "日志读取失败，请重试或直接粘贴关键片段");
+      return;
+    }
+  }
+
+  /* ② 没填发生时间（仅主对话入口）→ 取日志末尾当基准，并改成「整份给、超长保末尾」
+     ⚠️ 不能沿用「末尾 ±1 小时」：实测一包日志末尾是 10:24，那窗口只覆盖 10:15~10:24，
+        反而把用户真正关心的 09:01 那笔交易切掉了。整份给更安全。 */
+  let wholeLog = false;
+  if(noTime){
+    center = lastLogTs(parts) || new Date();
+    wholeLog = true;
+  }
+
+  /* ③ 每份独立截取。整份模式下按份数平分总预算，避免两份加起来顶爆 10 万字符 */
+  const budget = wholeLog ? Math.floor(LOG_MAX_CHARS / Math.max(1, parts.length)) : 0;
+  const res = parts.map(p=>Object.assign({}, p,
+      sliceOneLog(p.text, center, {wholeLog, budget: budget || undefined})));
+  const kept = res.filter(r=>r.hit && r.text.trim());
+  if(!kept.length){
+    _logBusy=false; renderLogAttach();
+    const n = res.reduce((a,b)=>a+b.stamped,0);
+    showErr(`在 ${fmtTs(center)} 前后 1 小时内没有找到日志行，请确认时间点是否正确（日志中共识别到 ${n} 行带时间戳）`);
+    return;
+  }
+
+  /* ④ 合并：单份无标签 → 原样；多份/带标签 → 加分隔标题，让模型分得清哪个程序的日志 */
+  const multi = kept.length > 1 || kept.some(r=>r.label);
+  // 标题里带上「仅末尾 x/y 行」：否则模型会把「没搜到某笔交易」误判成「这笔没发生」
+  const body = multi
+    ? kept.map(r=>`===== ${r.label||"日志"}（${r.name}${r.trimmed?`，仅末尾 ${r.took}/${r.rows} 行`:""}）=====\n${r.text}`).join("\n\n")
+    : kept[0].text;
+
+  const rows    = res.reduce((a,b)=>a+b.rows,0);
+  const took    = kept.reduce((a,b)=>a+b.took,0);
+  const trimmed = kept.reduce((a,b)=>a+b.trimmed,0);
+  const noTs    = kept.some(r=>r.stamped===0);
+  const detail  = multi
+    ? kept.map(r=>`${r.label||r.name} ${r.rows}行`).join(" + ") + "；"
+    : "";
+
+  let note;
+  if(wholeLog) note = trimmed
+    ? `未填发生时间，日志过长只附末尾 ${took} 行（填「发生时间」可精确定位到具体那笔）`
+    : "未填发生时间，已附整份日志";
+  else if(noTs) note = "部分日志无时间戳，已整份保留";
+  else note = `已按 ${fmtTs(center)} 前后 1 小时截取`;
+  if(trimmed && !wholeLog) note += `，过长部分已丢弃 ${trimmed} 行`;
+  if(zipMeta && zipMeta.sn) note = `${zipMeta.sn} ${zipMeta.date}｜` + note;
+
+  _logBusy=false;
+  _logAttach={ name:f.name||"日志", size:f.size||body.length,
+               kind: isZipFile(f) ? "zip" : "log",
+               win: wholeLog ? "" : (noTs ? `${fmtTs(center)} 前后 1 小时（部分日志无时间戳，未能按时间截取）`
+                                          : `${fmtTs(center)} 前后 1 小时`),
+               note, detail, text:body, took, rows,
+               _parts: parts,
+               file:f };   // 留着原文件：用户回头改「发生时间」时按新窗口重截，不必重新选一次
+  renderLogAttach();
+  hideErr();
+}
+$("logFile").addEventListener("change", ev=>{
+  const f=ev.target.files[0]; ev.target.value="";
+  if(!f) return;
+  if(!_reportTime){ _pendingLogFile=f; renderLogAttach(); return markLogTimeMissing(); }
+  ingestLogFile(f);
+});
+
+/* ========== 启动 ========== */
+checkHealth(); setInterval(checkHealth, 60000);
+loadThread();
+try{ _reportTime = localStorage.getItem(LS_TIME_KEY) || ""; }catch(_){}
+try{ _sid = localStorage.getItem(LS_SID_KEY) || ""; }catch(_){}
+/* 历史对话补录：旧消息没有案例号，这里补上并上报一次，让「案例审查」页也能看到它们。
+   只补 AI 回答；cid 一旦写入 localStorage 就不再变，重复打开也不会重复入库
+   （后端按 id 去重）。必须在 renderThread 之前跑，否则这些消息渲染不出结论按钮。 */
+function backfillCases(){
+  let n = 0;
+  thread.forEach(m=>{
+    if(m.role!=="assistant" || !m.content || m.cid) return;
+    m.cid = newCid(); m.ts = m.ts || Date.now(); m.verdict = m.verdict || "";
+    reportCase(m, "ask"); n++;
+  });
+  if(n) saveThread();
+}
+backfillCases();
+picked.clear();                         // 2026-11-02：恢复历史对话也**不预选**，复制前用户自己勾
+renderThread();
+paintSid();                             // 恢复本机记住的会话 ID（没有则隐藏该按钮）
+/* 发送键启用条件（2026-10-27 修）：原来只看输入框文字 ⇒ 只贴图/只附 txt 时按钮永远是灰的，
+   用户点不动，还以为是"附件没上传成功"。现在**有附件就能发**。 */
+function refreshSendBtn(){
+  $("sendBtn").disabled = busy || (!input.value.trim() && !_chatImgs.length && !_logAttach);
+}
+input.addEventListener("input", refreshSendBtn);
+input.addEventListener("keyup", refreshSendBtn);
+setInterval(()=>{ if(!busy) refreshSendBtn(); }, 300);
+
+// 主对话附件输入：接上按钮 / 粘贴 / 拖拽（2026-10-27）
+bindAttachInput();
+input.focus();
+</script>
+<script>
+/* ===== 浏览器能力自检（2026-11-02，ES5 写法）=====
+   背景：搜狗、旧版火狐等内核滞后的浏览器打开本站，主脚本可能**直接语法报错**
+   ⇒ 页面能看见、但按钮全点不动，用户以为"网站坏了"。
+   这段特意用 ES5 写、且**单独一个 script 块**（语法错误不会跨块传染），
+   主脚本挂了它照样能跑，把原因明明白白盖在页面上。
+   ⚠️ 只在缺失时显示，正常浏览器完全无感。 */
+(function () {
+  function detect() {
+    var bad = [];
+    if (typeof Promise === "undefined") bad.push("Promise");
+    if (typeof fetch === "undefined") bad.push("fetch");
+    if (typeof AbortController === "undefined") bad.push("AbortController");
+    if (typeof Symbol === "undefined") bad.push("Symbol");
+    try { new Function("return function*(){yield 1;}")(); } catch (e) { bad.push("ES6 生成器"); }
+    try { new Function("var o={};return o===null?0:(o&&o.x);")(); } catch (e) { bad.push("基础语法"); }
+    try { new Function("var f=(a)=>a; return f(1);")(); } catch (e) { bad.push("箭头函数"); }
+    try { new Function("return `x`;")(); } catch (e) { bad.push("模板字符串"); }
+    try { new Function("async function f(){}; return 1;")(); } catch (e) { bad.push("async 函数"); }
+    return bad;
+  }
+
+  var bad = detect();
+  if (!bad.length) return;
+
+  function paint() {
+    try {
+      var d = document.createElement("div");
+      d.setAttribute("style",
+        "position:fixed;left:0;right:0;top:0;z-index:2147483647;background:#fef2f2;" +
+        "border-bottom:1px solid #fecaca;color:#991b1b;padding:14px 18px;" +
+        "font:14px/1.7 -apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;" +
+        "text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.08)");
+      d.innerHTML = "⚠️ <b>当前浏览器版本过旧，助手可能无法正常使用</b><br>" +
+        "缺少：<b>" + bad.join("、") + "</b><br>" +
+        "请改用 <b>Chrome / Edge 最新版</b>；若是搜狗、360、QQ 浏览器，" +
+        "请在地址栏右侧把内核切换为「<b>极速模式</b>」后刷新本页。";
+      if (document.body) document.body.insertBefore(d, document.body.firstChild);
+    } catch (e) {}
+  }
+
+  if (document.body) paint();
+  else if (document.addEventListener) document.addEventListener("DOMContentLoaded", paint);
+  else if (window.attachEvent) window.attachEvent("onload", paint);
+})();
+</script>
+</body>
+</html>

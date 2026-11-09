@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>案例审查 · POS 运维知识库</title>
+<!-- 站点图标（2026-10-28）：与主页面同一套蓝色 POS 图标 -->
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<style>
+  :root{
+    --bg:#f1f5f9; --card:#ffffff; --line:#e2e8f0; --text:#0f172a; --muted:#64748b;
+    --blue:#2563eb; --ok:#15803d; --okbg:#ecfdf5; --bad:#b91c1c; --badbg:#fef2f2;
+    --warn:#b45309; --warnbg:#fffbeb;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:linear-gradient(160deg,#eef4ff 0%,var(--bg) 45%);
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    color:var(--text);min-height:100vh;
+  }
+  header{
+    position:sticky;top:0;z-index:9;background:rgba(255,255,255,.92);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);padding:12px 18px;
+  }
+  .hd{max-width:1180px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  h1{font-size:16px;margin:0;font-weight:700}
+  h1 small{font-weight:400;font-size:12px;color:var(--muted);margin-left:6px}
+  .grow{flex:1}
+  .btn{
+    border:1px solid var(--line);background:#fff;color:#334155;border-radius:8px;
+    padding:5px 11px;font-size:12.5px;cursor:pointer;font-family:inherit;transition:.15s;line-height:1.6;
+  }
+  .btn:hover{border-color:#93c5fd;background:#f8fbff}
+  .btn.primary{background:linear-gradient(135deg,#3b82f6,#2563eb);border-color:transparent;color:#fff;font-weight:600}
+  .btn.primary:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8)}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .btn.danger{color:#b91c1c;border-color:#fecaca}
+  .btn.danger:hover{background:#fef2f2;border-color:#fca5a5}
+  .chk{display:inline-flex;align-items:center;gap:6px;margin:0 14px 8px 0;font-size:13px;color:#334155;cursor:pointer}
+  .chk input{width:15px;height:15px;cursor:pointer}
+  .tip{margin:2px 0 0;font-size:12px;color:#64748b;line-height:1.6}
+  main{max-width:1180px;margin:0 auto;padding:16px 18px 60px}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:12.5px;color:var(--muted)}
+  .stat b{color:var(--text);font-size:16px;margin-left:6px}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .tab{
+    border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 13px;
+    font-size:12.5px;cursor:pointer;color:#475569;font-family:inherit;
+  }
+  .tab.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff;font-weight:600}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 15px;
+    margin-bottom:12px;box-shadow:0 2px 10px rgba(15,23,42,.04);
+  }
+  .card[data-verdict="unsolved"]{border-left:4px solid #fca5a5}
+  .card[data-verdict="solved"]{border-left:4px solid #86efac}
+  /* 已审过（建议入库 / 已忽略）的卡片压暗：一眼能看出「这条处理过了」 */
+  .card.done{opacity:.62}
+  .card.done:hover{opacity:1}
+  .crow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tag{font-size:11px;border-radius:6px;padding:2px 7px;background:#f1f5f9;color:#475569;border:1px solid var(--line)}
+  .tag.v-solved{background:var(--okbg);color:var(--ok);border-color:#86efac;font-weight:600}
+  .tag.v-unsolved{background:var(--badbg);color:var(--bad);border-color:#fca5a5;font-weight:600}
+  .tag.v-none{background:#f8fafc;color:#94a3b8}
+  .tag.s-ready{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe;font-weight:600}
+  .tag.s-skip{background:#e2e8f0;color:#475569;font-weight:600}
+  .time{font-size:12px;color:var(--muted);margin-left:auto}
+  .q{margin:10px 0 6px;font-size:13.5px;font-weight:600;line-height:1.6;white-space:pre-wrap;word-break:break-word}
+  .a{
+    font-size:13px;line-height:1.75;color:#334155;white-space:pre-wrap;word-break:break-word;
+    background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px 12px;
+    max-height:190px;overflow:hidden;position:relative;cursor:pointer;
+  }
+  .a.open{max-height:none}
+  .a:not(.open)::after{
+    content:"展开全文 ▾";position:absolute;right:10px;bottom:6px;font-size:11.5px;color:#1d4ed8;
+    background:linear-gradient(90deg,transparent,#f8fafc 35%);padding-left:26px;
+  }
+  .a.open::after{content:"";display:none}
+  .pics{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .pics img{width:88px;height:66px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+  .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px;align-items:center}
+  .coach{
+    margin-top:11px;border:1px dashed #bfdbfe;background:#f8fbff;border-radius:10px;padding:11px 12px;
+  }
+  .coach h4{margin:0 0 4px;font-size:12.5px;color:#1d4ed8}
+  .coach p{margin:0 0 9px;font-size:11.5px;color:var(--muted);line-height:1.6}
+  .fld{margin-bottom:8px}
+  .fld label{display:block;font-size:12px;font-weight:600;color:#334155;margin-bottom:4px}
+  .fld label em{font-style:normal;font-weight:400;color:#94a3b8;font-size:11px;margin-left:4px}
+  .fld input,.fld textarea{
+    width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12.5px;
+    font-family:inherit;color:var(--text);background:#fff;line-height:1.6;
+  }
+  .fld textarea{resize:vertical}
+  .fld input:focus,.fld textarea:focus{outline:2px solid #bfdbfe;border-color:#93c5fd}
+  .old{
+    margin-top:10px;border-left:3px solid #fbbf24;background:var(--warnbg);border-radius:0 10px 10px 0;
+    padding:9px 12px;font-size:12.5px;line-height:1.7;
+  }
+  .old b{color:var(--warn)}
+  .old .row{margin-top:5px;white-space:pre-wrap;word-break:break-word}
+  .retry{
+    margin-top:10px;border:1px solid #bfdbfe;background:#fff;border-radius:10px;padding:10px 12px;
+    font-size:12.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;color:#334155;
+  }
+  .empty{text-align:center;color:var(--muted);font-size:13px;padding:40px 0}
+  .toast{
+    position:fixed;left:50%;transform:translateX(-50%);bottom:26px;background:#0f172a;color:#fff;
+    padding:9px 16px;border-radius:10px;font-size:12.5px;opacity:0;pointer-events:none;transition:.25s;z-index:99;
+  }
+  .toast.show{opacity:1}
+  .toast.bad{background:#b91c1c}
+  .toast.ok{background:#15803d}
+  a.link{color:#1d4ed8;text-decoration:none;font-size:12.5px}
+  a.link:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<header>
+  <div class="hd">
+    <h1>案例审查 <small>哪些能入库、哪些要人工纠正，由你判断</small></h1>
+    <span class="grow"></span>
+    <button class="btn" id="reloadBtn">↻ 刷新</button>
+    <a class="link" href="/" target="_blank" rel="noopener">← 回到报障助手</a>
+  </div>
+</header>
+
+<main>
+  <div class="stats" id="stats"></div>
+  <div class="tabs" id="tabs"></div>
+  <div id="list"><div class="empty">加载中…</div></div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ⚠️ 这里曾硬编码网关密钥（kb-ask-…），2026-09-24 安全排查后移除：
+   它在公网可下载的页面里明文存在，任何使用者 F12 就能复制，
+   进而能调用 /cases（全量案例库）、/coach（写记录改助手行为）等管理接口。
+   现在前端不持有任何密钥 —— 鉴权由网关层的登录令牌（HttpOnly Cookie）负责。 */
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+let CASES = [], COACH = [], STAT = {}, FILTER = "todo";   // 默认「待审」：还没点过建议入库/忽略、也没判定过的
+let INTENT_LABELS = {};                                   // 适用场景标签（后端 intent.INTENTS）
+
+const VERDICT_TEXT = {solved:"已解决", unsolved:"未解决", none:"未标记"};
+const VIA_TEXT = {click:"用户点按钮", copy:"复制转人工", ask:"自动收录", upload:"上传截图"};
+
+async function api(path, body){
+  const r = await fetch(path, {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify(body||{}),
+    signal:AbortSignal.timeout(60000)
+  });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.detail || j.message || `请求失败（${r.status}）`);
+  return j;
+}
+
+function toast(msg, kind){
+  const t=$("toast");
+  t.className="toast show"+(kind?" "+kind:"");
+  t.textContent=msg;
+  clearTimeout(toast._t);
+  toast._t=setTimeout(()=>{ t.className="toast"+(kind?" "+kind:""); }, 4000);
+}
+
+/* ---------------- 数据加载与渲染 ---------------- */
+
+async function load(){
+  $("list").innerHTML = '<div class="empty">加载中…</div>';
+  try{
+    const j = await api("/cases");
+    CASES = j.cases||[]; COACH = j.coach||[]; STAT = j.stat||{};
+    INTENT_LABELS = j.intent_labels||{};
+    renderStats(); renderTabs(); renderList();
+  }catch(e){
+    $("list").innerHTML = `<div class="empty">加载失败：${esc(e.message)}<br>（本机服务可能没开，或隧道断了）</div>`;
+  }
+}
+
+function renderStats(){
+  const s = STAT;
+  $("stats").innerHTML = [
+    ["案例总数", s.total||0], ["未解决", s.unsolved||0], ["已解决", s.solved||0],
+    ["未标记", s.none||0], ["建议入库", s.ready||0], ["已教练", s.coached||0],
+  ].map(([k,v])=>`<div class="stat">${k}<b>${v}</b></div>`).join("");
+}
+
+function renderTabs(){
+  const tabs = [
+    ["todo", `待审 ${CASES.filter(c=>isTodo(c)).length}`],
+    ["all", `全部 ${CASES.length}`],
+    ["unsolved", `未解决 ${CASES.filter(c=>c.verdict==="unsolved").length}`],
+    ["solved", `已解决 ${CASES.filter(c=>c.verdict==="solved").length}`],
+    ["none", `未标记 ${CASES.filter(c=>(c.verdict||"none")==="none").length}`],
+    ["coached", `已教练 ${CASES.filter(c=>c.note).length}`],
+  ];
+  $("tabs").innerHTML = tabs.map(([k,t])=>
+    `<button class="tab${FILTER===k?" on":""}" data-f="${k}">${t}</button>`).join("");
+}
+
+// 待审 = 既没被判定（已解决/未解决），也没被我点过「建议入库 / 忽略」
+function isTodo(c){
+  return (c.verdict||"none")==="none" && (c.status||"new")==="new";
+}
+
+function filtered(){
+  if(FILTER==="all") return CASES;
+  if(FILTER==="todo") return CASES.filter(isTodo);
+  if(FILTER==="coached") return CASES.filter(c=>c.note);
+  return CASES.filter(c=>(c.verdict||"none")===FILTER);
+}
+
+function renderList(){
+  const rows = filtered();
+  if(!rows.length){
+    $("list").innerHTML = FILTER==="todo"
+      ? '<div class="empty">待审已清空 ✅<br>（点过「建议入库 / 忽略」或已被判定的案例都会移出这里，去「全部」还能看到）</div>'
+      : '<div class="empty">这一类暂时没有案例。<br>（在报障助手里点「已解决 / 未解决」，或点一次「复制给人工」，就会出现在这里）</div>';
+    return;
+  }
+  $("list").innerHTML = rows.map(cardHtml).join("");
+}
+
+function cardHtml(c){
+  const v = c.verdict||"none";
+  const st = c.status||"new";
+  const meta = c.meta||{};
+  const coach = COACH.filter(x=>x.case_id===c.id);
+  const imgs = (c.imgs||[]).map(id=>`<a href="/img/${esc(id)}" target="_blank" rel="noopener"><img src="/img/${esc(id)}" alt="截图" loading="lazy"></a>`).join("");
+  // 教练框预填：已有教练记录 → 填那条（接着改）；没有 → 填本次答案（在原文上改）
+  const last = coach.filter(x=>x.active!==false && (x.raw||"").trim()).pop();
+  const tpl = last ? last.raw
+    : ((c.answer||"").trim()
+      ? "【回答这类问题的固定写法】下面这段是本案例已给出的答案，作为范例：遇到同类问题，按同样的结构、口径、口气作答；"
+        + "订单号 / 金额 / 时间 / 会员等信息按实际查询结果替换。\n\n" + (c.answer||"").trim()
+      : "");
+  // 适用场景：已有教练 → 勾它声明的；否则按后端规则推断的 c.intent 预勾（可改）
+  const ints = (last && last.intents && last.intents.length) ? last.intents
+             : (c.intent && c.intent!=="unknown" ? [c.intent] : []);
+  const intOpts = Object.entries(INTENT_LABELS).filter(([k])=>k!=="unknown")
+    .map(([k,v])=>`<label class="chk"><input type="checkbox" data-i="${esc(k)}" ${ints.includes(k)?"checked":""}>${esc(v)}</label>`)
+    .join("");
+  const intTag = ints.length
+    ? `<span class="tag">场景：${ints.map(k=>esc(INTENT_LABELS[k]||k)).join(" / ")}</span>` : "";
+  return `
+  <div class="card${st!=="new"?" done":""}" data-verdict="${esc(v)}" data-cid="${esc(c.id)}">
+    <div class="crow">
+      <span class="tag v-${esc(v)}">${VERDICT_TEXT[v]||v}</span>
+      ${st!=="new"?`<span class="tag s-${esc(st)}">${st==="ready"?"建议入库":"已忽略"}</span>`:""}
+      ${coach.length?`<span class="tag s-ready">已教练</span>`:""}
+      ${intTag}
+      <span class="tag">${esc(VIA_TEXT[c.via]||c.via||"")}</span>
+      ${Object.entries(meta).map(([k,x])=>`<span class="tag">${esc(k)}：${esc(x)}</span>`).join("")}
+      <span class="time">${esc(c.time||"")}</span>
+    </div>
+    <div class="q">${esc(c.question||"（无问题文本）")}</div>
+    <div class="a" data-toggle="a">${esc(c.answer||"（无回答）")}</div>
+    ${imgs?`<div class="pics">${imgs}</div>`:""}
+    ${coach.map(oldHtml).join("")}
+    <div class="acts">
+      <button class="btn" data-act="ready">✅ 建议入库</button>
+      <button class="btn" data-act="skip">🚫 忽略</button>
+      <button class="btn" data-act="coach">✏️ 需调整（教练模式）</button>
+      <button class="btn" data-act="copy">📋 复制问题</button>
+      <button class="btn" data-act="retry" ${coach.length?"":"disabled title=\"先写下教练记录再重跑\""}>🔁 用教练重跑</button>
+      <button class="btn danger" data-act="del" title="物理删除这条案例（连带它的教练记录）">🗑 删除</button>
+    </div>
+    <div class="coach" data-coach="${esc(c.id)}" hidden>
+      <h4>教练模式：在原文上改，保存后同类问题照这个写法答</h4>
+      <p><b>下面已自动填入本次答案</b> —— 不用从零写，哪里不对改哪里（加一句、删一句、换口径都行）。
+         助手遇到同类问题会优先照这段作答（优先级高于知识库）。<br>
+         ⚠️ 想让它对<b>整类问题</b>生效：<b>勾上「适用场景」</b>就行 —— 勾了以后不管用户怎么措辞、
+         换谁的手机号，只要是这一类问题都会带上这条教练。同时把正文里的具体单号 / 手机号 / 金额
+         改成占位说法，后面加一句「数字按实际查询结果替换」效果最好。</p>
+      <div class="fld"><label>教练内容 <em>已填本次答案，直接改</em></label>
+        <textarea data-k="raw" rows="12" placeholder="这里会自动填入本次答案；若本次无答案，就在这里写：先说什么 → 用什么查 → 怎么解析 → 查到/查不到分别怎么答">${esc(tpl)}</textarea></div>
+      <div class="fld"><label>适用场景 <em>已自动推断，可改；不勾 = 按字面相似度匹配</em></label>
+        <div>${intOpts}</div>
+        <p class="tip">勾了场景 ⇒ 以后<b>只要问题属于这个场景就一定带上这条教练</b>（不再管措辞像不像）。
+           代价是同时只认勾选的场景，所以别漏勾。</p></div>
+      <div class="fld"><label>标签 <em>可选，逗号分隔</em></label>
+        <input data-k="tags" placeholder="如：会员,订单查询"></div>
+      <div class="acts">
+        <button class="btn primary" data-act="coach-save">保存并立即生效</button>
+        <button class="btn" data-act="coach-cancel">取消</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function oldHtml(x){
+  return `<div class="old">
+    <b>已教练 · ${esc(x.time||"")}</b>${x.active===false?"（已停用）":""}
+    ${(x.intents&&x.intents.length)?`<span class="tag">场景：${x.intents.map(k=>esc(INTENT_LABELS[k]||k)).join(" / ")}</span>`:""}
+    ${x.raw?`<div class="row">📝 ${esc(x.raw).replace(/\n/g,"<br>")}</div>`:""}
+    ${!x.raw&&x.point?`<div class="row">🎯 问题点：${esc(x.point)}</div>`:""}
+    ${!x.raw&&x.howto?`<div class="row">🔧 处理方式：${esc(x.howto)}</div>`:""}
+    ${!x.raw&&x.hint?`<div class="row">🔎 线索：${esc(x.hint)}</div>`:""}
+    <div class="acts"><button class="btn" data-act="coach-toggle" data-id="${esc(x.id)}" data-active="${x.active===false?"0":"1"}">${x.active===false?"重新启用":"停用这条"}</button></div>
+  </div>`;
+}
+
+/* ---------------- 交互 ---------------- */
+
+$("reloadBtn").addEventListener("click", load);
+
+$("tabs").addEventListener("click", e=>{
+  const t = e.target.closest(".tab");
+  if(!t) return;
+  FILTER = t.dataset.f;
+  renderTabs(); renderList();
+});
+
+document.addEventListener("click", async e=>{
+  // 展开/收起回答（点空白处不算）
+  const a = e.target.closest('[data-toggle="a"]');
+  if(a && !e.target.closest("button")){ a.classList.toggle("open"); return; }
+
+  const btn = e.target.closest("[data-act]");
+  if(!btn) return;
+  const card = btn.closest(".card");
+  if(!card) return;
+  const cid = card.dataset.cid;
+  const c = CASES.find(x=>x.id===cid);
+  const act = btn.dataset.act;
+
+  if(act==="ready" || act==="skip"){
+    const status = act==="ready" ? "ready" : "skip";
+    btn.disabled = true;
+    try{
+      await api("/feedback", {id:cid, status});
+      if(c) c.status = status;
+      // ⚠️ 之前只弹「已忽略」，卡片却还留在列表里、标签又是浅灰小字 ⇒ 看着像没生效（主人连点 6 次）
+      toast(status==="ready" ? "已标为「建议入库」，已移出待审" : "已忽略，已移出待审", "ok");
+      renderStats(); renderTabs(); renderList();
+    }catch(err){ btn.disabled=false; toast("保存失败："+err.message, "bad"); }
+    return;
+  }
+
+  if(act==="del"){
+    const q = (c && c.question ? c.question.slice(0,60) : cid);
+    if(!confirm(`确定删除这条案例？\n\n${q}\n\n删除后不可撤销（会先归档一份到 cases_deleted.jsonl），连带删掉它的教练记录。`)) return;
+    btn.disabled = true;
+    try{
+      const r = await api("/case/delete", {id:cid});
+      toast(`已删除（案例 ${r.removed||0} 行 / 教练 ${r.coach||0} 行）`, "ok");
+      await load();
+    }catch(err){ btn.disabled=false; toast("删除失败："+err.message, "bad"); }
+    return;
+  }
+
+  if(act==="coach"){
+    const box = card.querySelector(`[data-coach="${cid}"]`);
+    box.hidden = !box.hidden;
+    if(!box.hidden) box.querySelector('[data-k="raw"]').focus();
+    return;
+  }
+  if(act==="coach-cancel"){
+    const box = card.querySelector(`[data-coach="${cid}"]`);
+    box.hidden = true;
+    return;
+  }
+  if(act==="coach-save"){
+    const box = card.querySelector(`[data-coach="${cid}"]`);
+    const val = k => (box.querySelector(`[data-k="${k}"]`).value||"").trim();
+    const body = {
+      case_id: cid,
+      question: (c && c.question) || "",
+      raw: val("raw"),
+      intents: [...box.querySelectorAll("[data-i]:checked")].map(x=>x.dataset.i),
+      tags: val("tags") ? val("tags").split(/[,，\s]+/).filter(Boolean) : []
+    };
+    if(!body.raw){ toast("教练内容不能为空", "bad"); return; }
+    btn.disabled = true;
+    try{
+      await api("/coach", body);
+      toast("教练记录已保存，立刻生效", "ok");
+      await load();
+    }catch(err){ btn.disabled=false; toast("保存失败："+err.message, "bad"); }
+    return;
+  }
+  if(act==="coach-toggle"){
+    try{
+      await api("/coach/active", {id:btn.dataset.id, active:btn.dataset.active!=="1"});
+      toast("已更新教练记录状态", "ok");
+      await load();
+    }catch(err){ toast("操作失败："+err.message, "bad"); }
+    return;
+  }
+  if(act==="copy"){
+    const txt = `【待纠正案例】\n\n问题：\n${(c&&c.question)||""}\n\n当前 AI 回答：\n${(c&&c.answer)||""}\n`;
+    try{
+      await navigator.clipboard.writeText(txt);
+      toast("已复制，可直接粘贴给运维助手讨论", "ok");
+    }catch(_){
+      const ta=document.createElement("textarea");
+      ta.value=txt; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); ta.remove();
+      toast("已复制（降级方式）", "ok");
+    }
+    return;
+  }
+  if(act==="retry"){
+    const mine = COACH.filter(x=>x.case_id===cid && x.active!==false);
+    if(!mine.length){ toast("这条还没有教练记录", "bad"); return; }
+    btn.disabled = true; btn.textContent = "🔁 重跑中…";
+    try{
+      const j = await api("/retry", {question:(c&&c.question)||"", coach_id: mine[0].id});
+      const box = document.createElement("div");
+      box.className = "retry";
+      box.innerHTML = `<b>教练后重跑结果</b>（本次带上 ${j.coached.length} 条教练记录）\n\n${esc(j.answer||"")}`;
+      card.appendChild(box);
+      toast("已用教练记录重跑，见卡片底部", "ok");
+    }catch(err){ toast("重跑失败："+err.message, "bad"); }
+    finally{ btn.disabled=false; btn.textContent="🔁 用教练重跑"; }
+    return;
+  }
+});
+
+load();
+</script>
+</body>
+</html>

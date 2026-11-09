@@ -1,0 +1,35 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# ---- Node / Worker ----
+node_modules/
+worker/.wrangler/
+.pnpm-store/
+
+# ---- 凭据（有值的一律不入库）----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---- 运行时数据 ----
+data/sessions/
+data/uploads/
+data/eval/
+data/*.json
+data/code_index.pkl*
+data/diagrams/
+logs/
+*.log
+.run/
+
+# ---- 系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
