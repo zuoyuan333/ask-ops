@@ -395,6 +395,15 @@ def _kw_only(chunk: str) -> bool:
        直接跳过。原因：这些词本来就已通过别名组生效，本体再进上下文只会抢答。
        （打分阶段那行 `score *= 0.35` 因为随后就被跳过，实际是死代码。）
     """
+    # ⚠️ 2026-11-11 新增：**`> 别名：…` 块**（引文式别名 + 使用场景）同样是纯路由元数据。
+    #    实测后果很严重：问「A 为什么用不了」时，某篇文档开头的别名块拿到全场最高分（top1），
+    #    触发整篇注入占满 top_k，真正讲该问题的条目被挤到 20 名开外，
+    #    模型于是拿着相邻主题的文档硬答。这类块一般 80~140 字、无正文。
+    #    ⚠️ 必须放在 `_extract_kw` **之前**：后者能从这种写法里解析出词，
+    #       一旦 kw 非空就会绕过下面的分支（实测踩过，改了没生效）。
+    if re.match(r"^>\s*别名\s*[:：]", chunk.strip()):
+        return True
+
     kw = _extract_kw(chunk)
     if not kw:
         return False
@@ -1285,12 +1294,20 @@ def _expand_docs(hits: list) -> list:
     by_file: dict = defaultdict(list)
     for h in rest:
         by_file[h["file"]].append(h)
-    out = [head]
+    # ⚠️ 2026-11-11 改：**先排各文档已命中的块，再排注入的补充块**（原写法按文档聚堆）。
+    #   原写法会在「被注入文档」的命中块后面紧跟它十几个兄弟块，把 top_k 整个吃掉：
+    #     · 一次「某功能突然全没了」的问答里，一篇 15 块的文档占满名额，
+    #       真正讲该问题的条目掉到 20 名开外；
+    #     · 「列表为空」这类问题，5 个名额全被同一篇字典占完。
+    #   注入的初衷是「补齐同一篇里的上下文」，不该压过**其他文档确实命中的块**。
+    out = [head] + list(hits[1:])
+    seen = {(h["file"], h.get("idx")) for h in out}
     for f, _sc in order:
         for h in sorted(by_file.get(f, []), key=lambda x: x["idx"]):
-            if h["file"] == head["file"] and h["idx"] == head["idx"]:
-                continue              # 最高分块已放在 [1]
+            if (h["file"], h.get("idx")) in seen:
+                continue
             out.append(h)
+            seen.add((h["file"], h.get("idx")))
     return out
 
 

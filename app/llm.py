@@ -1,6 +1,7 @@
 """LLM 适配层：按 config.LLM_PROVIDER 分发到 echo / ollama / openai 兼容接口。"""
 import contextvars
 import json
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -312,6 +313,11 @@ def _post_retry(cli: httpx.Client, url: str, **kw) -> httpx.Response:
                 break
         try:
             r = cli.post(url, **kw)
+            # `ASK_HTTP_DEBUG=1` 时把 4xx/5xx 的**响应体**打出来。
+            # 起因：闭环里的 400 会被上层兜底吞掉，只剩一句 “Client error '400' Bad Request”，
+            # 完全不知道为什么（实测排查花了半小时）。只在显式开启时生效。
+            if r.status_code >= 400 and os.getenv("ASK_HTTP_DEBUG"):
+                print(f"[llm] HTTP {r.status_code} {url}\n  body={r.text[:900]}", flush=True)
             if (r.status_code == 429 or r.status_code >= 500) and not is_last:
                 time.sleep(_RETRY_DELAYS[i])
                 continue
@@ -585,7 +591,15 @@ def _openai_payload(msgs: list, tools: list | None = None,
             payload["thinking"] = {"type": "disabled"}
     if tools:
         payload["tools"] = tools
-        payload["tool_choice"] = tool_choice or "auto"
+        _tc = tool_choice or "auto"
+        # ⚠️ **思考模式不支持 tool_choice="required"**（实测 400：
+        #   `Thinking mode does not support this tool_choice`）。
+        #   而深档的「强制取证轮」正是传 required ⇒ 只要开思考，那一轮必挂、
+        #   整条闭环回退成单轮（表现就是「答得薄、不查证」）。
+        #   `auto` 与「不传」都正常，只有 required 被拒 ⇒ 思考开启时降级为 auto。
+        if _tc == "required" and (payload.get("thinking") or {}).get("type") == "enabled":
+            _tc = "auto"
+        payload["tool_choice"] = _tc
     return payload
 
 
@@ -830,8 +844,12 @@ def _json_loose(txt: str) -> dict | None:
 # ⚠️ 失败一律静默降级（返回空串）—— 规划只是加分项，绝不能因为它挂掉整个回答。
 _PLAN_PROMPT = (
     "先**不要调用任何工具**。请仅用一段话（≤160 字）列出你的**取证计划**："
+    "⓪ 先核对**手上已有什么**（编号 / 对象 / 报错原文 / 附带的日志）与**缺什么**；"
+    "缺的信息**不要假设它存在**，计划只能基于已有信息展开 —— "
+    "实测教训：用户只给了一句现象（没给编号），计划里却写「先按编号查详情」，"
+    "整份计划建立在不存在的前提上，到第二轮才发现白排了。"
     "① 这条现象可能存在的**根因有哪几条**（分开列，别只写一条）；"
-    "② 每条根因**分别用什么手段排除**（查订单事实 / 查该店实际配置 / 代码检索确认机制）；"
+    "② 每条根因**分别用什么手段排除**（查具体事实 / 查生效配置 / 代码检索确认机制）；"
     "③ 按什么顺序查最省轮次。"
     "只输出计划本身，不要客套、不要解释。"
     "⚠️ 计划要覆盖**所有合理根因**，不要一开始就认定某一个原因 —— 实测过早锁定单一方向的答案，"
@@ -850,7 +868,15 @@ def _plan_prompt(max_steps: int) -> str:
     return (_PLAN_PROMPT
             + f"\n\n⚠️ 预算：你接下来共有 **{max_steps} 轮**取证机会（第 {max_steps} 轮会被强制作答）。"
               "计划要按这个预算排：通常 3~5 轮该查的就能查完，剩下留给意外；"
-              "同一件事换个写法再查一遍**不算新进展**，别把它排进计划。")
+              "同一件事换个写法再查一遍**不算新进展**，别把它排进计划。"
+            # 收口标准要**可判定**：只说「够了就收口」，模型感知不到「够了」。
+            # 实测一次问答：第 2 轮就命中了答案，之后又花 5 轮去核对拼写、确认实现、
+            # 预备备选方案 —— 工具只花 1 秒，总耗时 50 秒里 98% 是这些多余轮次。
+            + "\n\n⚠️ **收口标准（四件套齐了就别再查）**：处置手段（改什么/做什么）、"
+              "操作路径（在哪点）、生效方式（要不要重启/刷新）、风险（有什么副作用）。"
+              "四件齐了立即作答。"
+              "以下三种**不算继续检索的理由**：①核对拼写/键名（文档原文怎么写就怎么写）；"
+              "②确认代码实现（除非问题本身就是代码逻辑）；③预先准备「万一不行的备选方案」。")
 
 
 def _plan_round(msgs: list, meta: dict, max_steps: int = 8) -> str:
@@ -1337,6 +1363,11 @@ def answer_agentic(question: str, history: list | None = None,
                 msgs.append({"role": "user", "content":
                              "取证轮次已用完。请立即基于已查到的证据输出最终答案，"
                              "按固定结构（结论 / 事实 / 处理步骤 / ⚠️ 注意），不要再要求查工具。"
+                             # 末轮**禁止二次权衡**：实测答案轮的思考能写到 2000+ 字，
+                             # 比答案本身还长（全在纠结「某个细节要不要补」），单轮就占 18 秒。
+                             "**不要再权衡「是否还需要补查 / 某个细节要不要加」——现在直接写**；"
+                             "有不确定的地方，用「以实际界面为准」「需现场确认」如实标注，"
+                             "不要靠继续纠结来消除不确定性。"
                              "**输出前把答案通读一遍做减法**：删客套、删重复、删解释性从句，"
                              "只留「要做的动作 / 必须知道的取值 / 会踩的坑」；"
                              "日志细节只挑最关键的 2~4 行写进结论，不要逐笔抄回执。"
@@ -1377,6 +1408,16 @@ def answer_agentic(question: str, history: list | None = None,
                       f"（finish_reason={_fr}，max_tokens={_mt}）", flush=True)
             msg = choice.get("message") or {}
             calls = msg.get("tool_calls") or []
+            # 记录本轮模型的思考内容（思考档会返回 `reasoning_content`）。
+            # 这是「思考链路可视化」最有价值的一层：能看出它为什么选这个工具、
+            # 为什么换关键词、从哪一步开始跑偏。只存前 1200 字，够判断意图。
+            _rc = str(msg.get("reasoning_content") or "").strip()
+            if _rc:
+                meta.setdefault("rounds", []).append({
+                    "round": step,
+                    "reasoning": _rc[:1200],
+                    "has_tools": bool(calls),
+                })
             if not calls:
                 answer_text = msg.get("content") or ""
                 # ⚠️⚠️ 2026-10-22 修：**护栏 —— 拒绝「把工具调用标记当正文」的伪答案**。
@@ -1469,7 +1510,9 @@ def answer_agentic(question: str, history: list | None = None,
                     _args = {}
                 if not isinstance(_args, dict):
                     _args = {}
-                return _fn, _args, ctx.run(toolmod.run, _fn, _args)
+                _t0 = time.time()
+                _out = ctx.run(toolmod.run, _fn, _args)
+                return _fn, _args, _out, int((time.time() - _t0) * 1000)
 
             _tasks = [(tc, contextvars.copy_context()) for tc in calls]
             _workers = int(getattr(config, "AGENT_TOOL_WORKERS", 5) or 0)
@@ -1479,10 +1522,19 @@ def answer_agentic(question: str, history: list | None = None,
             else:
                 _results = [_run_one(tc, ctx) for tc, ctx in _tasks]
 
-            for (fn, args, out), tc in zip(_results, calls):
+            for (fn, args, out, _ms), tc in zip(_results, calls):
                 outs.append(out or "")
                 sigs.append(f"{fn}|{json.dumps(args, ensure_ascii=False, sort_keys=True)}")
-                meta["trace"].append({"tool": fn, "args": args, "chars": len(out or "")})
+                # 带**轮次 / 耗时 / 结果摘要**：只看 {tool,args,chars} 判断不出
+                # 「哪个工具慢」「返回的是不是空」，而这两条正是「它为什么又换个词再查」的关键。
+                meta["trace"].append({
+                    "round": step,
+                    "tool": fn,
+                    "args": args,
+                    "chars": len(out or ""),
+                    "ms": _ms,
+                    "preview": " ".join(str(out or "").split())[:160],
+                })
                 msgs.append({"role": "tool", "tool_call_id": tc.get("id"), "content": out})
 
             # ⚠️ 2026-10-10 评审 ⓪：预算提醒（纯追加、不改历史 → 前缀缓存不受影响）。
@@ -2076,6 +2128,15 @@ def _split_conclusion(text: str, soft: int = 70) -> str:
         cut = min(len(body) - 1, soft - 1)
     keep, move = body[:cut + 1].strip(), body[cut + 1:].strip()
     if not keep or not move:
+        return text
+    # ⚠️ 2026-11-11：move 若是**「配图/教程怎么用」的说明句**，它属于「结论 + 链接」那一块，
+    #   挪进事实段会变成孤儿句。实测输出长这样：
+    #       结论 —— …（一句话）
+    #       📖 图文教程：https://…
+    #       事实 ——
+    #       里面有配图步骤，照着点更快：            ← 孤儿句，后面直接接下一段
+    #   这种句子留在结论里挨着链接才对 ⇒ 直接放弃本次切分。
+    if len(move) <= 40 and re.search(r"图文|配图|照着点|教程|链接", move):
         return text
 
     suffix = text[j:]

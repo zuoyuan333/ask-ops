@@ -483,6 +483,13 @@ def search_code(kw: str, path: str = "") -> str:
     kw = (kw or "").strip()
     if not kw:
         return "kw 不能为空。"
+    # ⚠️ 2026-11-11：**索引没加载 ≠ 源码里没有**。
+    #   原逻辑在索引为空时直接走"未检索到"分支，还告诉模型「该词不在源码里，
+    #   别再用同义词重试」—— 这是**错误结论**，会让它放弃一个本来能查到的东西
+    #   （实测：索引未加载时，连文件名都报"源码中没有"）。
+    if not codesearch.count_lines():
+        return ("代码索引**尚未就绪**（不是「源码里没有」）。"
+                "请改用知识库检索；或稍后重试本工具。")
     hits = codesearch.search([kw], path=(path or "").strip() or None)
     if not hits:
         tail = f"（已限定路径含「{path}」）" if (path or "").strip() else ""
